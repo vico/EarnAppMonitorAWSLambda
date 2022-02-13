@@ -1,14 +1,14 @@
 
 # Development memo
 
-## Create environment
+## Create dev environment
 
 ```bash
 python3 -m pip install --user pipenv
-pipenv install discord_webhook pyEarnapp
+pipenv install --dev
 ```
 
-## Create zip file for deployment
+## Create zip file for AWS Lambda deployment
 
 ```bash
 # add libraries to zip file

@@ -5,10 +5,16 @@ name = "pypi"
 
 [packages]
 discord-webhook = "*"
-pyearnapp = "*"
+pyEarnapp = "*"
 tenacity = "*"
+pydantic = "*"
+email-validator = "*"
+jupyter = "*"
 
 [dev-packages]
+boto3 = "*"
+notebook = "*"
+jupyter = "*"
 
 [requires]
 python_version = "3.9"
