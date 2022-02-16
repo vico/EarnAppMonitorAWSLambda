@@ -2,15 +2,16 @@
 
 import os
 from collections import defaultdict
+from datetime import datetime
 from decimal import Decimal
 from ipaddress import IPv4Address
 from typing import List, Union, Optional
 from urllib.parse import urljoin
 from uuid import UUID
-from datetime import datetime
+
 import boto3
-from boto3.dynamodb.conditions import Key
 import requests
+from boto3.dynamodb.conditions import Key
 from discord_webhook import DiscordWebhook, DiscordEmbed
 from pydantic import BaseModel, condecimal, EmailStr
 from tenacity import retry, wait_fixed, stop_after_attempt, RetryError
@@ -22,6 +23,8 @@ PAYPAL_ICON = "https://img.icons8.com/color/64/000000/paypal.png"
 WEBHOOK_URL = os.environ['WEBHOOK_URL']
 TOKEN = os.environ['TOKEN']
 LOCAL = bool(os.environ.get('local', False))
+GIGABYTES = 1000**3
+MEGABYTES = 1000**2
 
 BASE_URL = 'https://earnapp.com/dashboard/api/'
 user_data_endpoint = urljoin(BASE_URL, 'user_data')
@@ -47,6 +50,7 @@ class RedeemDetails(TypedDict):
     payment_method: str
     min_redeem: condecimal(ge=0)
 
+
 # b'[{"uuid":"6205fc7685640a493f3de818","status":"approved","email":"tranvinhcuong@gmail.com","date":"2022-02-11T06:04:38.275Z","payment_method":"paypal.com","payment_date":null,"money_amount":2.61,"ref_bonuses_amount":0,"promo_bonuses_amount":0},{"uuid":"61fe1421b77c5459abf57a2b","status":"paid","email":"tranvinhcuong@gmail.com","date":"2022-02-05T06:07:29.140Z","payment_method":"paypal.com","payment_date":"2022-02-06T08:18:27.879Z","money_amount":3.14,"ref_bonuses_amount":0,"promo_bonuses_amount":0},{"uuid":"61f77cf780ce06d130774824","status":"paid","email":"tranvinhcuong@gmail.com","date":"2022-01-31T06:08:55.425Z","payment_method":"paypal.com","payment_date":"2022-01-31T12:00:44.099Z","money_amount":6.08,"ref_bonuses_amount":0,"promo_bonuses_amount":0}]'
 class Transaction(BaseModel):
     uuid: Union[UUID, str]
@@ -58,6 +62,7 @@ class Transaction(BaseModel):
     money_amount: condecimal(ge=0)
     ref_bonuses_amount: condecimal(ge=0)
     promo_bonuses_amount: condecimal(ge=0)
+
 
 # b'{"multiplier":1,"multiplier_icon":"","multiplier_hint":"","redeem_details":{"email":"tranvinhcuong@gmail.com","payment_method":"paypal.com","min_redeem":2.5},"balance":0.47,"earnings_total":12.32,"ref_bonuses":0,"ref_bonuses_total":0,"promo_bonuses":0,"promo_bonuses_total":0,"referral_part":"10%"}'
 class Money(BaseModel):
@@ -76,6 +81,7 @@ class Money(BaseModel):
 
 class Device(BaseModel):
     uuid: Union[UUID, str]
+    appid: Optional[str] = ""  # old version does not have appid
     title: str
     bw: int
     total_bw: int
@@ -86,6 +92,14 @@ class Device(BaseModel):
     country: str
     ips: List[IPv4Address]
 
+
+def bw2cents(dev: Device) -> Decimal:
+    """
+    Given a device object, return number of cents earned by bandwidth use.
+    :param dev: target device
+    :return: number of cents (USD)
+    """
+    return dev.bw // ((Decimal(0.01)/dev.rate) * GIGABYTES)
 
 @retry(wait=wait_fixed(30), stop=stop_after_attempt(5))
 def get_money_data_from_earnapp() -> Money:
@@ -146,7 +160,7 @@ def update_devices(dev_l, table=None):
                 'uuid': dev.uuid,
                 'title': dev.title
             },
-            UpdateExpression="set bw=:bw, earned=:earned, earned_total=:et, total_bw=:tb, redeem_bw=:rb, ips=:ips, rate=:r",
+            UpdateExpression="set bw=:bw, earned=:earned, earned_total=:et, total_bw=:tb, redeem_bw=:rb, ips=:ips, rate=:r, app_id=:aid",
             ExpressionAttributeValues={
                 ':earned': dev.earned,
                 ':et': dev.earned_total,
@@ -154,7 +168,8 @@ def update_devices(dev_l, table=None):
                 ':rb': Decimal(dev.redeem_bw),
                 ':bw': Decimal(dev.bw),
                 ':ips': list(map(lambda x: str(x), dev.ips)),
-                ':r': dev.rate
+                ':r': dev.rate,
+                ':aid': dev.appid
             },
             ReturnValues="UPDATED_NEW"
         )
@@ -172,15 +187,24 @@ def get_traffic_and_earnings(dev_l, current_devs) -> str:
 
     bw_usage = defaultdict(int)
     earned_dict = defaultdict(Decimal)
+    total_bw = 0
+    total_earn = Decimal(0)
 
     for dev in current_devs:
         bw_usage[str(dev.ips[0])] += dev_map[dev.uuid].bw - dev.bw
-        earned_dict[str(dev.ips[0])] += dev_map[dev.uuid].earned - dev.earned
+        total_bw += dev_map[dev.uuid].bw - dev.bw
+        dev_earn = bw2cents(dev_map[dev.uuid]) - bw2cents(dev)  # number of cents earned
+        earned_dict[str(dev.ips[0])] += dev_earn
+        total_earn += dev_earn
 
-    return '\n'.join([f'{k: <15}: {v / 1024 ** 2: >8.2f}MB|{earned_dict[k]:>5}$' for (k, v) in bw_usage.items()])
+
+    ret_l = [f'{k: <15}: {v / MEGABYTES: >8.2f}MB|{earned_dict[k]:>5}$' for (k, v) in bw_usage.items()]
+    ret_l.append(f'Traffic: {total_bw / MEGABYTES:.2f}, Earning: {total_earn/100}$')
+
+    return '\n'.join(ret_l)
 
 
-def notify_new_trx(trx_l):
+def notify_new_trx(trx_l: List[Transaction]):
     webhook = DiscordWebhook(url=WEBHOOK_URL, rate_limit_retry=True)
     trx = trx_l[0]
     embed = DiscordEmbed(
@@ -191,9 +215,9 @@ def notify_new_trx(trx_l):
     embed.set_thumbnail(url=EARNAPP_LOGO)
     for transaction in trx_l:
         embed.add_embed_field(name="UUID", value=f"{transaction.uuid}")
-        embed.add_embed_field(name="Amount", value=f"+{transaction.amount}$")
+        embed.add_embed_field(name="Amount", value=f"+{transaction.money_amount}$")
         embed.add_embed_field(name="Status", value=f"{transaction.status}")
-        embed.add_embed_field(name="Redeem Date", value=f"{transaction.redeem_date.strftime('%Y-%m-%d')}")
+        embed.add_embed_field(name="Redeem Date", value=f"{transaction.date.strftime('%Y-%m-%d')}")
 
     embed.add_embed_field(name="Method", value=f"{trx.payment_method}")
     embed.add_embed_field(name="Email", value=f"{trx.email}")
@@ -246,8 +270,7 @@ def lambda_handler(event, context):
 
         embed.add_embed_field(name="Earned", value=f"+{change}$")
 
-        embed.add_embed_field(
-            name="Balance", value=f"{earnapp_money.balance}")
+        embed.add_embed_field(name="Balance", value=f"{earnapp_money.balance}")
         embed.add_embed_field(name="Lifetime Balance",
                               value=f"{earnapp_money.earnings_total}")
         embed.add_embed_field(name='Traffic and Earnings',

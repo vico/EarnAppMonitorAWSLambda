@@ -3,7 +3,6 @@ import os
 # boto3 is the AWS SDK library for Python.
 # We can use the low-level client to make API calls to DynamoDB.
 LOCAL = bool(os.environ.get('local', False))
-print(LOCAL)
 
 if LOCAL:
     client = boto3.client('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
@@ -121,4 +120,4 @@ def create_money_table():
         print(e)
 
 if __name__ == '__main__':
-    create_trx_table()
+    create_devices_table()
