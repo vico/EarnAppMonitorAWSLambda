@@ -2,3 +2,4 @@
 __pycache__
 **/*.zip
 /check_earnapp_response.ipynb
+.env

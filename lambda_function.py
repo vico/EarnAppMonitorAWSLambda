@@ -20,11 +20,10 @@ from typing_extensions import TypedDict
 # Press the green button in the gutter to run the script.
 EARNAPP_LOGO = "https://www.androidfreeware.net/img2/com-earnapp.jpg"
 PAYPAL_ICON = "https://img.icons8.com/color/64/000000/paypal.png"
-WEBHOOK_URL = os.environ['WEBHOOK_URL']
-TOKEN = os.environ['TOKEN']
+
 LOCAL = bool(os.environ.get('local', False))
-GIGABYTES = 1000**3
-MEGABYTES = 1000**2
+GIGABYTES = 1000 ** 3
+MEGABYTES = 1000 ** 2
 
 BASE_URL = 'https://earnapp.com/dashboard/api/'
 user_data_endpoint = urljoin(BASE_URL, 'user_data')
@@ -34,15 +33,20 @@ device_endpoint = urljoin(BASE_URL, 'device')
 transaction_endpoint = urljoin(BASE_URL, 'transactions')
 redeem_endpoint = urljoin(BASE_URL, 'redeem')
 
+if LOCAL:
+    from dotenv import load_dotenv
+    dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
+    load_dotenv()  # load .env file and export content as environment variables: WEBHOOK_URL, TOKEN
+else:
+    dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1')
+
+WEBHOOK_URL = os.environ['WEBHOOK_URL']
+TOKEN = os.environ['TOKEN']
+
 header = {
     'cookie': f'auth=1; auth-method=google; oauth-refresh-token={TOKEN}'
 }
 params = (('appid', 'earnapp_dashboard'),)
-
-if LOCAL:
-    dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
-else:
-    dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1')
 
 
 class RedeemDetails(TypedDict):
@@ -99,7 +103,8 @@ def bw2cents(dev: Device) -> Decimal:
     :param dev: target device
     :return: number of cents (USD)
     """
-    return dev.bw // ((Decimal(0.01)/dev.rate) * GIGABYTES)
+    return dev.bw // ((Decimal(0.01) / dev.rate) * GIGABYTES)
+
 
 @retry(wait=wait_fixed(30), stop=stop_after_attempt(5))
 def get_money_data_from_earnapp() -> Money:
@@ -197,9 +202,8 @@ def get_traffic_and_earnings(dev_l, current_devs) -> str:
         earned_dict[str(dev.ips[0])] += dev_earn
         total_earn += dev_earn
 
-
     ret_l = [f'{k: <15}: {v / MEGABYTES: >8.2f}MB|{earned_dict[k]:>5}$' for (k, v) in bw_usage.items()]
-    ret_l.append(f'Traffic: {total_bw / MEGABYTES:.2f}, Earning: {total_earn/100}$')
+    ret_l.append(f'Traffic: {total_bw / MEGABYTES:.2f}, Earning: {total_earn / 100}$')
 
     return '\n'.join(ret_l)
 
@@ -279,6 +283,7 @@ def lambda_handler(event, context):
                               value=f"{len(dev_l)}")
 
         embed.set_footer(text=f"Version: 0.0.1.0", icon_url=PAYPAL_ICON)
+        embed.set_timestamp()
 
         webhook.add_embed(embed)
     except RetryError:
@@ -291,3 +296,7 @@ def lambda_handler(event, context):
 
     response = webhook.execute()
     return response.text
+
+
+if __name__ == '__main__':
+    lambda_handler({}, {})
