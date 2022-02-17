@@ -13,10 +13,12 @@ TOKEN = os.environ['TOKEN']
 from lambda_function import Transaction, insert_trx_to_dynamodb
 
 
-LOCAL = bool(os.environ.get('local', False))
-if LOCAL=='False':
+LOCAL = os.environ.get('local', '')
+if LOCAL.lower() == 'true':
+    LOCAL = True
+else:
     LOCAL = False
-print(LOCAL)
+
 if LOCAL:
     client = boto3.client('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
 else:

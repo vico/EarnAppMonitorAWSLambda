@@ -22,7 +22,12 @@ from typing_extensions import TypedDict
 EARNAPP_LOGO = "https://www.androidfreeware.net/img2/com-earnapp.jpg"
 PAYPAL_ICON = "https://img.icons8.com/color/64/000000/paypal.png"
 
-LOCAL = bool(os.environ.get('local', False))
+LOCAL = os.environ.get('local', '')
+if LOCAL.lower() == 'true':
+    LOCAL = True
+else:
+    LOCAL = False
+
 GIGABYTES = 1000 ** 3
 MEGABYTES = 1000 ** 2
 
