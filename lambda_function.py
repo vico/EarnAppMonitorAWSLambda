@@ -12,6 +12,7 @@ from uuid import UUID
 import boto3
 import requests
 from boto3.dynamodb.conditions import Key
+from dateutil.parser import parse, ParserError
 from discord_webhook import DiscordWebhook, DiscordEmbed
 from pydantic import BaseModel, condecimal, EmailStr
 from tenacity import retry, wait_fixed, stop_after_attempt, RetryError
@@ -35,6 +36,7 @@ redeem_endpoint = urljoin(BASE_URL, 'redeem')
 
 if LOCAL:
     from dotenv import load_dotenv
+
     dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
     load_dotenv()  # load .env file and export content as environment variables: WEBHOOK_URL, TOKEN
 else:
@@ -58,7 +60,7 @@ class RedeemDetails(TypedDict):
 # b'[{"uuid":"6205fc7685640a493f3de818","status":"approved","email":"tranvinhcuong@gmail.com","date":"2022-02-11T06:04:38.275Z","payment_method":"paypal.com","payment_date":null,"money_amount":2.61,"ref_bonuses_amount":0,"promo_bonuses_amount":0},{"uuid":"61fe1421b77c5459abf57a2b","status":"paid","email":"tranvinhcuong@gmail.com","date":"2022-02-05T06:07:29.140Z","payment_method":"paypal.com","payment_date":"2022-02-06T08:18:27.879Z","money_amount":3.14,"ref_bonuses_amount":0,"promo_bonuses_amount":0},{"uuid":"61f77cf780ce06d130774824","status":"paid","email":"tranvinhcuong@gmail.com","date":"2022-01-31T06:08:55.425Z","payment_method":"paypal.com","payment_date":"2022-01-31T12:00:44.099Z","money_amount":6.08,"ref_bonuses_amount":0,"promo_bonuses_amount":0}]'
 class Transaction(BaseModel):
     uuid: Union[UUID, str]
-    status: str  # paid, approved
+    status: str  # paid, approved, pending_procedure
     email: EmailStr
     date: datetime
     payment_method: str
@@ -104,6 +106,23 @@ def bw2cents(dev: Device) -> Decimal:
     :return: number of cents (USD)
     """
     return dev.bw // ((Decimal(0.01) / dev.rate) * GIGABYTES)
+
+
+def calculate_pending_bytes(dev: Device) -> Decimal:
+    # number of G for 0.01USD = 0.01/0.25 = 0.04 GB (/0.01USD)
+    number_of_cents = bw2cents(dev)
+    pending_bytes = dev.bw - number_of_cents * Decimal((Decimal(0.01) / dev.rate) * GIGABYTES)
+    return pending_bytes
+
+
+def calculate_bandwidth_used(dev: Device) -> Decimal:
+    """
+    Given a bandwidth number already used, return number which already converted to money
+    :param dev: Device object
+    :return: a number express the bandwidth converted to money
+    """
+    number_of_cents = bw2cents(dev)
+    return number_of_cents * Decimal((Decimal(0.01) / dev.rate) * GIGABYTES)
 
 
 @retry(wait=wait_fixed(30), stop=stop_after_attempt(5))
@@ -180,11 +199,71 @@ def update_devices(dev_l, table=None):
         )
 
 
-def get_trx_from_db(table=None) -> List[Transaction]:
+def get_trx_from_earnapp():
+    tx_res = requests.get(
+        transaction_endpoint,
+        headers=header,
+        params=params
+    )
+
+    return list(map(lambda x: Transaction(**x), tx_res.json()))
+
+
+def insert_trx_to_dynamodb(ret_l, table):
+    with table.batch_writer() as batch:
+        for trx in ret_l:
+            batch.put_item(Item={
+                'uuid': trx.uuid,
+                'status': trx.status,
+                'email': trx.email,
+                'date': str(trx.date),
+                'payment_method': trx.payment_method,
+                'payment_date': str(trx.payment_date),
+                'money_amount': trx.money_amount,
+                'ref_bonuses_amount': trx.ref_bonuses_amount,
+                'promo_bonuses_amount': trx.promo_bonuses_amount
+            })
+
+
+def get_all_trx_from_db(table=None) -> List[Transaction]:
     if table is None:
         table = dynamodb.Table('Transactions')
-    resp = table.query(KeyConditionExpression=Key('status').eq('approved'))
-    return list(map(lambda x: Transaction(**x), resp['Items']))
+    resp = table.scan()
+    ret = []
+    for trx in resp['Items']:
+        try:
+            trx['payment_date'] = parse(trx['payment_date'])
+        except ParserError as e:
+            trx['payment_date'] = None
+        ret.append(Transaction(**trx))
+    return ret
+
+
+def get_non_paid_trx_from_db(table=None) -> List[Transaction]:
+    if table is None:
+        table = dynamodb.Table('Transactions')
+    all_trx = get_all_trx_from_db(table)
+    resp = [trx for trx in all_trx if trx.status == 'approved' or trx.status == 'pending_procedure']
+    return resp
+
+def update_transactions(trx_l: List[Transaction], table=None):
+    if table is None:
+        table = dynamodb.Table('Transactions')
+
+    for trx in trx_l:
+        table.update_item(
+            Key={
+                'uuid': trx.uuid
+            },
+            UpdateExpression='set #fn = :s',
+            ExpressionAttributeNames= {
+                '#fn': 'status'
+            },
+            ExpressionAttributeValues={
+                ':s': trx.status
+            },
+            ReturnValues="UPDATED_NEW"
+        )
 
 
 def get_traffic_and_earnings(dev_l, current_devs) -> str:
@@ -194,25 +273,36 @@ def get_traffic_and_earnings(dev_l, current_devs) -> str:
     earned_dict = defaultdict(Decimal)
     total_bw = 0
     total_earn = Decimal(0)
+    pending_bytes = Decimal(0)
 
     for dev in current_devs:
-        bw_usage[str(dev.ips[0])] += dev_map[dev.uuid].bw - dev.bw
-        total_bw += dev_map[dev.uuid].bw - dev.bw
-        dev_earn = bw2cents(dev_map[dev.uuid]) - bw2cents(dev)  # number of cents earned
-        earned_dict[str(dev.ips[0])] += dev_earn
-        total_earn += dev_earn
+        title = str(dev.title)  # Assumption: each device has 1 ip as first element in the list
 
-    ret_l = [f'{k: <15}: {v / MEGABYTES: >8.2f}MB|{earned_dict[k]:>5}$' for (k, v) in bw_usage.items()]
-    ret_l.append(f'Traffic: {total_bw / MEGABYTES:.2f}, Earning: {total_earn / 100}$')
+        # the bandwidth used at this moment is the current bandwidth used minus the bandwidth converted to money last time
+        bw_used = dev_map[dev.uuid].bw - calculate_bandwidth_used(dev)
+        bw_usage[title] += bw_used
+        # total_bw += bw_used
+
+        # pending_bytes += calculate_pending_bytes(dev_map[dev.uuid])  # total number of bytes for each device which not fit a cent
+        # dev_earn = bw2cents(dev_map[dev.uuid]) - bw2cents(dev)  # number of cents earned
+        # earned_dict[device_ip] += dev_earn  # total number of cents for each IP
+        # need to calculate money based on total bandwidth used for each IP
+        earned_dict[title] = bw_usage[title] // ((Decimal(0.01) / current_devs[0].rate) * GIGABYTES)
+        # total_earn += dev_earn
+
+    # total_earn += pending_bytes // ((Decimal(0.01) / current_devs[0].rate) * GIGABYTES)
+
+    ret_l = [f'{k: <15}: {v / MEGABYTES: >8.2f}MB|{earned_dict[k] / 100:>5.2f}$' for (k, v) in bw_usage.items()]
+    # ret_l.append(f'Traffic: {total_bw / MEGABYTES:.2f}MB, Earning: {total_earn / 100:.2f}$')
 
     return '\n'.join(ret_l)
 
 
-def notify_new_trx(trx_l: List[Transaction]):
+def notify_new_trx(trx_l: List[Transaction], title: str='New Redeem Request'):
     webhook = DiscordWebhook(url=WEBHOOK_URL, rate_limit_retry=True)
     trx = trx_l[0]
     embed = DiscordEmbed(
-        title="New Redeem Request",
+        title=title,
         description="New redeem request has been submitted",
         color="07FF70"
     )
@@ -226,7 +316,7 @@ def notify_new_trx(trx_l: List[Transaction]):
     embed.add_embed_field(name="Method", value=f"{trx.payment_method}")
     embed.add_embed_field(name="Email", value=f"{trx.email}")
 
-    footer_text = f"Payment {trx.status} as on {trx.payment_date.strftime('%Y-%m-%d')} via {trx.payment_method}"
+    footer_text = f"Payment {trx.status} as on {trx.date.strftime('%Y-%m-%d')} via {trx.payment_method}"
 
     embed.set_footer(text=footer_text, icon_url=PAYPAL_ICON)
     webhook.add_embed(embed)
@@ -246,11 +336,31 @@ def lambda_handler(event, context):
         current_devs = get_current_devices(dev_table)  # get current information from DynamoDB
 
         trx_table = dynamodb.Table('Transactions')
-        trx_l = get_trx_from_db(trx_table)
-        if len(trx_l) > 0:
-            notify_new_trx(trx_l)
+        non_paid_trx_map = {trx.uuid: trx for trx in get_non_paid_trx_from_db(trx_table)
+                             if trx.status == 'approved' or trx.status=='pending_procedure'}
 
-        change = earnapp_money.balance - db_money.balance
+        all_trx = get_trx_from_earnapp()
+        trx_map = { trx.uuid: trx for trx in all_trx}
+        approved_trx_l = [trx for trx in all_trx if trx.status == 'approved']
+
+        # find status changed trx
+        changed_l = []
+        for uuid in non_paid_trx_map.keys():
+            if trx_map[uuid].status != non_paid_trx_map[uuid]:  # transaction status changed!
+                changed_l.append(trx_map[uuid])
+
+        if len(approved_trx_l) > 0:
+            notify_new_trx(approved_trx_l)
+            # insert new approved transactions to DynamoDB
+            insert_trx_to_dynamodb(approved_trx_l, trx_table)
+            change = earnapp_money.balance  # there is a redeem request, so reset the change value to balance
+        elif len(changed_l) > 0:  # approved redeem request is processed now
+            notify_new_trx(changed_l, title='Redeem Requests Status Changed!')
+            change = earnapp_money.balance - db_money.balance
+            update_transactions(changed_l, trx_table)  # update trx status
+        else:
+            change = earnapp_money.balance - db_money.balance
+
         if change > 0:
             title = f"Balance Increased [+{change}]"
             color = "03F8C4"
@@ -271,9 +381,7 @@ def lambda_handler(event, context):
         )
 
         embed.set_thumbnail(url=EARNAPP_LOGO)
-
         embed.add_embed_field(name="Earned", value=f"+{change}$")
-
         embed.add_embed_field(name="Balance", value=f"{earnapp_money.balance}")
         embed.add_embed_field(name="Lifetime Balance",
                               value=f"{earnapp_money.earnings_total}")
