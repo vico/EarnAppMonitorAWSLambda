@@ -1,8 +1,9 @@
 import datetime
+import os
 from decimal import Decimal
+from ipaddress import IPv4Address
 
 import boto3
-import os
 from dotenv import load_dotenv
 
 load_dotenv()  # load .env file and export content as environment variables: WEBHOOK_URL, TOKEN
@@ -10,19 +11,19 @@ load_dotenv()  # load .env file and export content as environment variables: WEB
 WEBHOOK_URL = os.environ['WEBHOOK_URL']
 TOKEN = os.environ['TOKEN']
 
-from lambda_function import Transaction, insert_trx_to_dynamodb
-
+from lambda_function import Transaction, insert_trx_to_dynamodb, Money, Device
 
 LOCAL = os.environ.get('local', '')
-if LOCAL.lower() == 'true':
-    LOCAL = True
-else:
+if LOCAL.lower() == 'false':
     LOCAL = False
+else:
+    LOCAL = True
 
 if LOCAL:
     client = boto3.client('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
 else:
     client = boto3.client('dynamodb', region_name='ap-northeast-1')
+
 
 def create_trx_table():
     try:
@@ -154,8 +155,70 @@ def populate_trx():
     insert_trx_to_dynamodb(trx_l, trx_table)
 
 
+def populate_money_table():
+    dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
+    table = dynamodb.Table('Money')
+
+    money = Money(**{'ref_bonuses_total': Decimal('0'),
+                     'multiplier_hint': '',
+                     'balance': Decimal('0.44'),
+                     'multiplier': Decimal('1'),
+                     'multiplier_icon': '',
+                     'redeem_details': {'email': 'tranvinhcuong@gmail.com',
+                                        'payment_method': 'paypal.com',
+                                        'min_redeem': Decimal('2.5')},
+                     'ref_bonuses': Decimal('0'),
+                     'promo_bonuses': Decimal('0'),
+                     'earnings_total': Decimal('15.1'),
+                     'referral_part': '10%',
+                     'promo_bonuses_total': Decimal('0'),
+                     'email': 'tranvinhcuong@gmail.com'})
+
+    with table.batch_writer() as batch:
+        batch.put_item(Item={
+            'email': money.redeem_details['email'],
+            'multiplier': money.multiplier,
+            'multiplier_icon': money.multiplier_icon,
+            'multiplier_hint': money.multiplier_hint,
+            'redeem_details': money.redeem_details,
+            'balance': money.balance,
+            'earnings_total': money.earnings_total,
+            'ref_bonuses': money.ref_bonuses,
+            'ref_bonuses_total': money.ref_bonuses_total,
+            'promo_bonuses': money.promo_bonuses,
+            'promo_bonuses_total': money.promo_bonuses_total,
+            'referral_part': money.referral_part
+        })
+
+
+def populate_device_table():
+    dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
+    table = dynamodb.Table('Devices')
+    dev_l = [
+        Device(uuid='sdk-node-31eb47c5d15849e5917a8028eee266cb', appid='node_earnapp.com', title='middle', bw=264677198,
+               total_bw=2872097612, redeem_bw=2607420414, rate=Decimal('0.25'), earned=Decimal('0.06'),
+               earned_total=Decimal('0.69'), country='jp', ips=[IPv4Address('222.224.148.183')]),
+        Device(uuid='sdk-node-81869dce55b94d6e9d039ca3bc692cd9', appid='node_earnapp.com', title='bottom', bw=279744982,
+               total_bw=3033488514, redeem_bw=2753743532, rate=Decimal('0.25'), earned=Decimal('0.06'),
+               earned_total=Decimal('0.73'), country='jp', ips=[IPv4Address('222.224.148.183')]),
+        Device(uuid='sdk-node-ca17fd0e8c2d4cd19d6fa6b4f0a324b4', appid='node_earnapp.com', title='top', bw=814733496,
+               total_bw=5666501096, redeem_bw=4851767600, rate=Decimal('0.25'), earned=Decimal('0.19'),
+               earned_total=Decimal('1.4'), country='jp', ips=[IPv4Address('111.217.8.34')]),
+        Device(uuid='sdk-node-5171d466bdf643d2b87f374fb3e08f41', appid='node_earnapp.com', title='desktop',
+               bw=599303480, total_bw=19924712920, redeem_bw=19325409440, rate=Decimal('0.25'), earned=Decimal('0.14'),
+               earned_total=Decimal('7.32'), country='jp', ips=[IPv4Address('111.217.8.34')])
+    ]
+    with table.batch_writer() as batch:
+        for dev in dev_l:
+            tmp = dev.dict()
+            tmp['ips'] = list(map(lambda x: str(x), tmp['ips']))
+            batch.put_item(Item=tmp)
+
+
 if __name__ == '__main__':
     create_devices_table()
     create_trx_table()
     create_money_table()
     populate_trx()
+    populate_money_table()
+    populate_device_table()

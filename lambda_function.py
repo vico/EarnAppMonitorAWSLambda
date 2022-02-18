@@ -4,6 +4,7 @@ import os
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
+from enum import Enum
 from ipaddress import IPv4Address
 from typing import List, Union, Optional
 from urllib.parse import urljoin
@@ -11,7 +12,6 @@ from uuid import UUID
 
 import boto3
 import requests
-from boto3.dynamodb.conditions import Key
 from dateutil.parser import parse, ParserError
 from discord_webhook import DiscordWebhook, DiscordEmbed
 from pydantic import BaseModel, condecimal, EmailStr
@@ -23,10 +23,10 @@ EARNAPP_LOGO = "https://www.androidfreeware.net/img2/com-earnapp.jpg"
 PAYPAL_ICON = "https://img.icons8.com/color/64/000000/paypal.png"
 
 LOCAL = os.environ.get('local', '')
-if LOCAL.lower() == 'true':
-    LOCAL = True
-else:
+if LOCAL.lower() == 'false':
     LOCAL = False
+else:
+    LOCAL = True
 
 GIGABYTES = 1000 ** 3
 MEGABYTES = 1000 ** 2
@@ -62,9 +62,15 @@ class RedeemDetails(TypedDict):
     min_redeem: condecimal(ge=0)
 
 
+class TransactionStatus(str, Enum):
+    paid = 'paid'
+    approved = 'approved'
+    pending_procedure = 'pending_procedure'
+
+
 class Transaction(BaseModel):
     uuid: Union[UUID, str]
-    status: str  # paid, approved, pending_procedure
+    status: TransactionStatus  # paid, approved, pending_procedure
     email: EmailStr
     date: datetime
     payment_method: str
@@ -101,31 +107,26 @@ class Device(BaseModel):
     country: str
     ips: List[IPv4Address]
 
+    def bw2cents(self) -> Decimal:
+        """
+        Given a device object, return number of cents earned by bandwidth use.
+        :return: number of cents (USD)
+        """
+        return self.bw // ((Decimal(0.01) / self.rate) * GIGABYTES)
 
-def bw2cents(dev: Device) -> Decimal:
-    """
-    Given a device object, return number of cents earned by bandwidth use.
-    :param dev: target device
-    :return: number of cents (USD)
-    """
-    return dev.bw // ((Decimal(0.01) / dev.rate) * GIGABYTES)
+    def calculate_pending_bytes(self) -> Decimal:
+        # number of G for 0.01USD = 0.01/0.25 = 0.04 GB (/0.01USD)
+        number_of_cents = self.bw2cents()
+        pending_bytes = self.bw - number_of_cents * Decimal((Decimal(0.01) / self.rate) * GIGABYTES)
+        return pending_bytes
 
-
-def calculate_pending_bytes(dev: Device) -> Decimal:
-    # number of G for 0.01USD = 0.01/0.25 = 0.04 GB (/0.01USD)
-    number_of_cents = bw2cents(dev)
-    pending_bytes = dev.bw - number_of_cents * Decimal((Decimal(0.01) / dev.rate) * GIGABYTES)
-    return pending_bytes
-
-
-def calculate_bandwidth_used(dev: Device) -> Decimal:
-    """
-    Given a bandwidth number already used, return number which already converted to money
-    :param dev: Device object
-    :return: a number express the bandwidth converted to money
-    """
-    number_of_cents = bw2cents(dev)
-    return number_of_cents * Decimal((Decimal(0.01) / dev.rate) * GIGABYTES)
+    def calculate_bandwidth_used(self) -> Decimal:
+        """
+        Given a bandwidth number already used, return number which already converted to money
+        :return: a number express the bandwidth converted to money
+        """
+        number_of_cents = self.bw2cents()
+        return number_of_cents * Decimal((Decimal(0.01) / self.rate) * GIGABYTES)
 
 
 @retry(wait=wait_fixed(30), stop=stop_after_attempt(5))
@@ -201,7 +202,7 @@ def update_devices(dev_l, table=None):
             ReturnValues="UPDATED_NEW"
         )
 
-
+@retry(wait=wait_fixed(30), stop=stop_after_attempt(5))
 def get_trx_from_earnapp():
     tx_res = requests.get(
         transaction_endpoint,
@@ -243,11 +244,14 @@ def get_all_trx_from_db(table=None) -> List[Transaction]:
 
 
 def get_non_paid_trx_from_db(table=None) -> List[Transaction]:
+    #TODO: rewrite scan to a query with OR condition if possible
     if table is None:
         table = dynamodb.Table('Transactions')
     all_trx = get_all_trx_from_db(table)
-    resp = [trx for trx in all_trx if trx.status == 'approved' or trx.status == 'pending_procedure']
+    resp = [trx for trx in all_trx if
+            trx.status == TransactionStatus.approved or trx.status == TransactionStatus.pending_procedure]
     return resp
+
 
 def update_transactions(trx_l: List[Transaction], table=None):
     if table is None:
@@ -259,7 +263,7 @@ def update_transactions(trx_l: List[Transaction], table=None):
                 'uuid': trx.uuid
             },
             UpdateExpression='set #fn = :s',
-            ExpressionAttributeNames= {
+            ExpressionAttributeNames={
                 '#fn': 'status'
             },
             ExpressionAttributeValues={
@@ -276,30 +280,25 @@ def get_traffic_and_earnings(dev_l, current_devs) -> str:
     earned_dict = defaultdict(Decimal)
 
     for dev in current_devs:
-        title = str(dev.title)  # Assumption: each device has 1 ip as first element in the list
-
         # the bandwidth used at this moment is the current bandwidth used minus the bandwidth converted to money last time
-        bw_used = dev_map[dev.uuid].bw - calculate_bandwidth_used(dev)
-        bw_usage[title] += bw_used
+        bw_used = dev_map[dev.uuid].bw - dev.calculate_bandwidth_used()
+        bw_usage[dev.title] += bw_used
 
-        # pending_bytes += calculate_pending_bytes(dev_map[dev.uuid])  # total number of bytes for each device which not fit a cent
-        # dev_earn = bw2cents(dev_map[dev.uuid]) - bw2cents(dev)  # number of cents earned
-        # earned_dict[device_ip] += dev_earn  # total number of cents for each IP
         # need to calculate money based on total bandwidth used for each IP
-        earned_dict[title] = bw_usage[title] // ((Decimal(0.01) / current_devs[0].rate) * GIGABYTES)
+        earned_dict[dev.title] = bw_usage[dev.title] // ((Decimal(0.01) / current_devs[0].rate) * GIGABYTES)
 
     ret_l = [f'{k: <15}: {v / MEGABYTES: >8.2f}MB|{earned_dict[k] / 100:>5.2f}$' for (k, v) in bw_usage.items()]
 
     return '\n'.join(ret_l)
 
 
-def notify_new_trx(trx_l: List[Transaction], title: str='New Redeem Request'):
+def notify_new_trx(trx_l: List[Transaction], title: str = 'New Redeem Request'):
     webhook = DiscordWebhook(url=WEBHOOK_URL, rate_limit_retry=True)
     assert len(trx_l) > 0
     trx = trx_l[0]
     embed = DiscordEmbed(
         title=title,
-        description= "New redeem request has been submitted" if title == 'New Redeem Request' else 'Redeem request status updated' ,
+        description="New redeem request has been submitted" if title == 'New Redeem Request' else 'Redeem request status updated',
         color="07FF70"
     )
     embed.set_thumbnail(url=EARNAPP_LOGO)
@@ -333,11 +332,12 @@ def lambda_handler(event, context):
 
         trx_table = dynamodb.Table('Transactions')
         non_paid_trx_map = {trx.uuid: trx for trx in get_non_paid_trx_from_db(trx_table)
-                             if trx.status == 'approved' or trx.status=='pending_procedure'}
+                            if trx.status == TransactionStatus.approved or
+                            trx.status == TransactionStatus.pending_procedure}
 
         all_trx = get_trx_from_earnapp()
-        trx_map = { trx.uuid: trx for trx in all_trx}
-        approved_trx_l = [trx for trx in all_trx if trx.status == 'approved']
+        trx_map = {trx.uuid: trx for trx in all_trx}
+        approved_trx_l = [trx for trx in all_trx if trx.status == TransactionStatus.approved]
 
         # find status changed trx
         changed_l = []
