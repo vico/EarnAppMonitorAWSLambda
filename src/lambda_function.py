@@ -1,5 +1,7 @@
 # -*- encoding: utf8 -*-
 
+from __future__ import annotations
+
 import os
 from collections import defaultdict
 from datetime import datetime
@@ -56,12 +58,6 @@ header = {
 params = (('appid', 'earnapp_dashboard'),)
 
 
-class RedeemDetails(TypedDict):
-    email: str
-    payment_method: str
-    min_redeem: condecimal(ge=0)
-
-
 class TransactionStatus(str, Enum):
     paid = 'paid'
     approved = 'approved'
@@ -79,9 +75,86 @@ class Transaction(BaseModel):
     ref_bonuses_amount: condecimal(ge=0)
     promo_bonuses_amount: condecimal(ge=0)
 
+    @staticmethod
+    @retry(wait=wait_fixed(30), stop=stop_after_attempt(5))
+    def get_trx_from_earnapp() -> List[Transaction]:
+        tx_res = requests.get(
+            transaction_endpoint,
+            headers=header,
+            params=params
+        )
+
+        return list(map(lambda x: Transaction(**x), tx_res.json()))
+
+    @staticmethod
+    def insert_trx_to_dynamodb(ret_l, table):
+        with table.batch_writer() as batch:
+            for trx in ret_l:
+                batch.put_item(Item={
+                    'uuid': trx.uuid,
+                    'status': trx.status,
+                    'email': trx.email,
+                    'date': str(trx.date),
+                    'payment_method': trx.payment_method,
+                    'payment_date': str(trx.payment_date),
+                    'money_amount': trx.money_amount,
+                    'ref_bonuses_amount': trx.ref_bonuses_amount,
+                    'promo_bonuses_amount': trx.promo_bonuses_amount
+                })
+
+    @staticmethod
+    def update_transactions(trx_l: List[Transaction], table=None):
+        if table is None:
+            table = dynamodb.Table('Transactions')
+
+        for trx in trx_l:
+            table.update_item(
+                Key={
+                    'uuid': trx.uuid
+                },
+                UpdateExpression='set #fn = :s',
+                ExpressionAttributeNames={
+                    '#fn': 'status'
+                },
+                ExpressionAttributeValues={
+                    ':s': trx.status
+                },
+                ReturnValues="UPDATED_NEW"
+            )
+
+    @staticmethod
+    def get_all_trx_from_db(table=None) -> List[Transaction]:
+        if table is None:
+            table = dynamodb.Table('Transactions')
+        resp = table.scan()
+        ret = []
+        for trx in resp['Items']:
+            try:
+                trx['payment_date'] = parse(trx['payment_date'])
+            except ParserError as e:
+                trx['payment_date'] = None
+            ret.append(Transaction(**trx))
+        return ret
+
+    @staticmethod
+    def get_non_paid_trx_from_db(table=None) -> List[Transaction]:
+        # TODO: rewrite scan to a query with OR condition if possible
+        if table is None:
+            table = dynamodb.Table('Transactions')
+        all_trx = Transaction.get_all_trx_from_db(table)
+        resp = [trx for trx in all_trx if
+                trx.status == TransactionStatus.approved or trx.status == TransactionStatus.pending_procedure]
+        return resp
+
+
+class RedeemDetails(TypedDict):
+    email: str
+    payment_method: str
+    min_redeem: condecimal(ge=0)
+
 
 class Money(BaseModel):
-    multiplier: int
+    multiplier: condecimal(ge=1)
     multiplier_icon: str
     multiplier_hint: str
     redeem_details: RedeemDetails
@@ -92,6 +165,42 @@ class Money(BaseModel):
     promo_bonuses: condecimal(ge=0)
     promo_bonuses_total: condecimal(ge=0)
     referral_part: str
+
+    @staticmethod
+    @retry(wait=wait_fixed(30), stop=stop_after_attempt(5))
+    def get_money_data_from_earnapp() -> Money:
+        money_res = requests.get(
+            money_endpoint,
+            headers=header,
+            params=params
+        )
+        return Money(**money_res.json())
+
+    @staticmethod
+    def get_money_data(email: str, table=None) -> Money:
+        if table is None:
+            table = dynamodb.Table('Money')
+        resp = table.get_item(Key={"email": email})
+        return Money(**resp['Item'])
+
+    def write_to_db(self, table=None):
+        if table is None:
+            table = dynamodb.Table('Money')
+
+        table.update_item(
+            Key={
+                'email': self.redeem_details['email']
+            },
+            UpdateExpression="set balance=:b, multiplier=:m, multiplier_icon=:mi, multiplier_hint=:mh, earnings_total= :ea",
+            ExpressionAttributeValues={
+                ':b': self.balance,
+                ':m': self.multiplier,
+                ':mi': self.multiplier_icon,
+                ':mh': self.multiplier_hint,
+                ':ea': self.earnings_total,
+            },
+            ReturnValues="UPDATED_NEW"
+        )
 
 
 class Device(BaseModel):
@@ -128,149 +237,47 @@ class Device(BaseModel):
         number_of_cents = self.bw2cents()
         return number_of_cents * Decimal((Decimal(0.01) / self.rate) * GIGABYTES)
 
-
-@retry(wait=wait_fixed(30), stop=stop_after_attempt(5))
-def get_money_data_from_earnapp() -> Money:
-    money_res = requests.get(
-        money_endpoint,
-        headers=header,
-        params=params
-    )
-    return Money(**money_res.json())
-
-
-@retry(wait=wait_fixed(30), stop=stop_after_attempt(5))
-def get_devices_info_from_earnapp() -> List[Device]:
-    dev_res = requests.get(
-        devices_endpoint,
-        headers=header,
-        params=params
-    )
-    return list(map(lambda x: Device(**x), dev_res.json()))
-
-
-def get_money_data(email: str, table=None) -> Money:
-    if table is None:
-        table = dynamodb.Table('Money')
-    resp = table.get_item(Key={"email": email})
-    return Money(**resp['Item'])
-
-
-def update_money(m: Money, table=None):
-    if table is None:
-        table = dynamodb.Table('Money')
-
-    table.update_item(
-        Key={
-            'email': m.redeem_details['email']
-        },
-        UpdateExpression="set balance=:b",
-        ExpressionAttributeValues={
-            ':b': m.balance,
-        },
-        ReturnValues="UPDATED_NEW"
-    )
-
-
-def get_current_devices(table=None) -> List[Device]:
-    if table is None:
-        table = dynamodb.Table('Devices')
-    all_devs = table.scan()
-    return [Device(**item) for item in all_devs['Items']]
-
-
-def update_devices(dev_l, table=None):
-    if table is None:
-        table = dynamodb.Table('Devices')
-    for dev in dev_l:
-        table.update_item(
-            Key={
-                'uuid': dev.uuid,
-                'title': dev.title
-            },
-            UpdateExpression="set bw=:bw, earned=:earned, earned_total=:et, total_bw=:tb, redeem_bw=:rb, ips=:ips, rate=:r, app_id=:aid",
-            ExpressionAttributeValues={
-                ':earned': dev.earned,
-                ':et': dev.earned_total,
-                ':tb': Decimal(dev.total_bw),
-                ':rb': Decimal(dev.redeem_bw),
-                ':bw': Decimal(dev.bw),
-                ':ips': list(map(lambda x: str(x), dev.ips)),
-                ':r': dev.rate,
-                ':aid': dev.appid
-            },
-            ReturnValues="UPDATED_NEW"
+    @staticmethod
+    @retry(wait=wait_fixed(30), stop=stop_after_attempt(5))
+    def get_devices_info_from_earnapp() -> List[Device]:
+        dev_res = requests.get(
+            devices_endpoint,
+            headers=header,
+            params=params
         )
+        return list(map(lambda x: Device(**x), dev_res.json()))
 
-@retry(wait=wait_fixed(30), stop=stop_after_attempt(5))
-def get_trx_from_earnapp():
-    tx_res = requests.get(
-        transaction_endpoint,
-        headers=header,
-        params=params
-    )
+    @staticmethod
+    def get_devices_from_db(table=None) -> List[Device]:
+        if table is None:
+            table = dynamodb.Table('Devices')
+        all_devs = table.scan()
+        return [Device(**item) for item in all_devs['Items']]
 
-    return list(map(lambda x: Transaction(**x), tx_res.json()))
+    @staticmethod
+    def update_devices(dev_l, table=None):
+        if table is None:
+            table = dynamodb.Table('Devices')
+        for dev in dev_l:
+            table.update_item(
+                Key={
+                    'uuid': dev.uuid,
+                    'title': dev.title
+                },
+                UpdateExpression="set bw=:bw, earned=:earned, earned_total=:et, total_bw=:tb, redeem_bw=:rb, ips=:ips, rate=:r, app_id=:aid",
+                ExpressionAttributeValues={
+                    ':earned': dev.earned,
+                    ':et': dev.earned_total,
+                    ':tb': Decimal(dev.total_bw),
+                    ':rb': Decimal(dev.redeem_bw),
+                    ':bw': Decimal(dev.bw),
+                    ':ips': list(map(lambda x: str(x), dev.ips)),
+                    ':r': dev.rate,
+                    ':aid': dev.appid
+                },
+                ReturnValues="UPDATED_NEW"
+            )
 
-
-def insert_trx_to_dynamodb(ret_l, table):
-    with table.batch_writer() as batch:
-        for trx in ret_l:
-            batch.put_item(Item={
-                'uuid': trx.uuid,
-                'status': trx.status,
-                'email': trx.email,
-                'date': str(trx.date),
-                'payment_method': trx.payment_method,
-                'payment_date': str(trx.payment_date),
-                'money_amount': trx.money_amount,
-                'ref_bonuses_amount': trx.ref_bonuses_amount,
-                'promo_bonuses_amount': trx.promo_bonuses_amount
-            })
-
-
-def get_all_trx_from_db(table=None) -> List[Transaction]:
-    if table is None:
-        table = dynamodb.Table('Transactions')
-    resp = table.scan()
-    ret = []
-    for trx in resp['Items']:
-        try:
-            trx['payment_date'] = parse(trx['payment_date'])
-        except ParserError as e:
-            trx['payment_date'] = None
-        ret.append(Transaction(**trx))
-    return ret
-
-
-def get_non_paid_trx_from_db(table=None) -> List[Transaction]:
-    #TODO: rewrite scan to a query with OR condition if possible
-    if table is None:
-        table = dynamodb.Table('Transactions')
-    all_trx = get_all_trx_from_db(table)
-    resp = [trx for trx in all_trx if
-            trx.status == TransactionStatus.approved or trx.status == TransactionStatus.pending_procedure]
-    return resp
-
-
-def update_transactions(trx_l: List[Transaction], table=None):
-    if table is None:
-        table = dynamodb.Table('Transactions')
-
-    for trx in trx_l:
-        table.update_item(
-            Key={
-                'uuid': trx.uuid
-            },
-            UpdateExpression='set #fn = :s',
-            ExpressionAttributeNames={
-                '#fn': 'status'
-            },
-            ExpressionAttributeValues={
-                ':s': trx.status
-            },
-            ReturnValues="UPDATED_NEW"
-        )
 
 
 def get_traffic_and_earnings(dev_l, current_devs) -> str:
@@ -322,20 +329,20 @@ def lambda_handler(event, context):
     webhook = DiscordWebhook(url=WEBHOOK_URL)
 
     try:
-        earnapp_money = get_money_data_from_earnapp()
+        earnapp_money = Money.get_money_data_from_earnapp()
         money_table = dynamodb.Table('Money')
-        db_money = get_money_data(earnapp_money.redeem_details['email'], money_table)
+        db_money = Money.get_money_data(earnapp_money.redeem_details['email'], money_table)
 
         dev_table = dynamodb.Table('Devices')
-        dev_l = get_devices_info_from_earnapp()  # get latest devices information from EarnApp API
-        current_devs = get_current_devices(dev_table)  # get current information from DynamoDB
+        dev_l = Device.get_devices_info_from_earnapp()  # get latest devices information from EarnApp API
+        current_devs = Device.get_devices_from_db(dev_table)  # get current information from DynamoDB
 
         trx_table = dynamodb.Table('Transactions')
-        non_paid_trx_map = {trx.uuid: trx for trx in get_non_paid_trx_from_db(trx_table)
+        non_paid_trx_map = {trx.uuid: trx for trx in Transaction.get_non_paid_trx_from_db(trx_table)
                             if trx.status == TransactionStatus.approved or
                             trx.status == TransactionStatus.pending_procedure}
 
-        all_trx = get_trx_from_earnapp()
+        all_trx = Transaction.get_trx_from_earnapp()
         trx_map = {trx.uuid: trx for trx in all_trx}
         approved_trx_l = [trx for trx in all_trx if trx.status == TransactionStatus.approved]
 
@@ -348,28 +355,28 @@ def lambda_handler(event, context):
         if len(approved_trx_l) > 0:
             notify_new_trx(approved_trx_l)
             # insert new approved transactions to DynamoDB
-            insert_trx_to_dynamodb(approved_trx_l, trx_table)
+            Transaction.insert_trx_to_dynamodb(approved_trx_l, trx_table)
             change = earnapp_money.balance  # there is a redeem request, so reset the change value to balance
         elif len(changed_l) > 0:  # approved redeem request is processed now
             notify_new_trx(changed_l, title='Redeem Requests Status Changed!')
             change = earnapp_money.balance - db_money.balance
-            update_transactions(changed_l, trx_table)  # update trx status
+            Transaction.update_transactions(changed_l, trx_table)  # update trx status
         else:
             change = earnapp_money.balance - db_money.balance
 
         if change > 0:
             title = f"Balance Increased [+{change}]"
             color = "03F8C4"
-            update_money(earnapp_money, money_table)
-            update_devices(dev_l, dev_table)
+            earnapp_money.write_to_db(money_table)
+            Device.update_devices(dev_l, dev_table)
         elif change == 0:
             title = "Balance Unchanged!"
             color = "E67E22"
         else:  # bug from earnapp which may withdraw money
             title = f'Balance Decreased! [{change}]'
             color = "FF0000"
-            update_money(earnapp_money, money_table)
-            update_devices(dev_l, dev_table)
+            earnapp_money.write_to_db(money_table)
+            Device.update_devices(dev_l, dev_table)
 
         embed = DiscordEmbed(
             title=title,

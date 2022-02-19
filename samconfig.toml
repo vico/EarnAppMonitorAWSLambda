@@ -1,0 +1,17 @@
+version=0.1
+[default.global.parameters]
+stack_name = "LambdaTestFunction"
+
+[default.deploy.parameters]
+stack_name = "LambdaTestFunction"
+region = "ap-northeast-1"
+confirm_changeset = true
+container_env_var_file = "env.json"
+
+[default.build.parameters]
+container_env_var = ["Function1.GITHUB_TOKEN=TOKEN1", "Function2.GITHUB_TOKEN=TOKEN2"]
+container_env_var_file = "env.json"
+no_beta_features = true
+[default.local_invoke.parameters]
+region = "ap-northeast-1"
+container_env_var_file = "env.json"

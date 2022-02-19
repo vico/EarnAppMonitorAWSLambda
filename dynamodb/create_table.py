@@ -11,7 +11,7 @@ load_dotenv()  # load .env file and export content as environment variables: WEB
 WEBHOOK_URL = os.environ['WEBHOOK_URL']
 TOKEN = os.environ['TOKEN']
 
-from lambda_function import Transaction, insert_trx_to_dynamodb, Money, Device
+from src.lambda_function import Transaction, insert_trx_to_dynamodb, Money, Device
 
 LOCAL = os.environ.get('local', '')
 if LOCAL.lower() == 'false':

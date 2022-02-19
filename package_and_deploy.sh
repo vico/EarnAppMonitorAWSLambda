@@ -12,6 +12,6 @@ rm -rf $ZIP_FILE
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 VENV_DIR=$( pipenv --venv )/lib/python${PY_VER}/site-packages
 cd $VENV_DIR && zip -r $SCRIPT_DIR/$ZIP_FILE . > /dev/null
-cd $SCRIPT_DIR && zip -g $ZIP_FILE lambda_function.py > /dev/null
-ls -lh $ZIP_FILE
+cd $SCRIPT_DIR/src && zip -g $SCRIPT_DIR/$ZIP_FILE lambda_function.py > /dev/null
+cd $SCRIPT_DIR && ls -lh $ZIP_FILE
 aws lambda update-function-code --function-name ${LAMBDA_FUNC_NAME} --zip-file fileb://${ZIP_FILE}
