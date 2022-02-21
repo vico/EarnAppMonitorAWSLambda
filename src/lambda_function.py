@@ -278,54 +278,76 @@ class Device(BaseModel):
                 ReturnValues="UPDATED_NEW"
             )
 
+    @staticmethod
+    def get_traffic_and_earnings(dev_l: List[Device], current_devs: List[Device]) -> str:
+        dev_map = {dev.uuid: dev for dev in dev_l}
+
+        bw_usage = defaultdict(int)
+        earned_dict = defaultdict(Decimal)
+
+        for dev in current_devs:
+            # the bandwidth used at this moment is the current bandwidth used minus the bandwidth converted to money last time
+            bw_used = dev_map[dev.uuid].bw - dev.calculate_bandwidth_used()
+            bw_usage[dev.title] += bw_used
+
+            # need to calculate money based on total bandwidth used for each IP
+            earned_dict[dev.title] = bw_usage[dev.title] // ((Decimal(0.01) / current_devs[0].rate) * GIGABYTES)
+
+        ret_l = [f'{k: <15}: {v / MEGABYTES: >8.2f}MB|{earned_dict[k] / 100:>5.2f}$' for (k, v) in bw_usage.items()]
+
+        return '\n'.join(ret_l)
 
 
-def get_traffic_and_earnings(dev_l, current_devs) -> str:
-    dev_map = {dev.uuid: dev for dev in dev_l}
+class DiscordUtility:
 
-    bw_usage = defaultdict(int)
-    earned_dict = defaultdict(Decimal)
+    @staticmethod
+    def notify_new_trx(trx_l: List[Transaction], title: str = 'New Redeem Request'):
+        webhook = DiscordWebhook(url=WEBHOOK_URL, rate_limit_retry=True)
+        assert len(trx_l) > 0
+        trx = trx_l[0]
+        embed = DiscordEmbed(
+            title=title,
+            description="New redeem request has been submitted" if title == 'New Redeem Request' else 'Redeem request status updated',
+            color="07FF70"
+        )
+        embed.set_thumbnail(url=EARNAPP_LOGO)
+        for transaction in trx_l:
+            embed.add_embed_field(name="UUID", value=f"{transaction.uuid}")
+            embed.add_embed_field(name="Amount", value=f"+{transaction.money_amount}$")
+            embed.add_embed_field(name="Status", value=f"{transaction.status}")
+            embed.add_embed_field(name="Redeem Date", value=f"{transaction.date.strftime('%Y-%m-%d')}")
 
-    for dev in current_devs:
-        # the bandwidth used at this moment is the current bandwidth used minus the bandwidth converted to money last time
-        bw_used = dev_map[dev.uuid].bw - dev.calculate_bandwidth_used()
-        bw_usage[dev.title] += bw_used
+        embed.add_embed_field(name="Method", value=f"{trx.payment_method}")
+        embed.add_embed_field(name="Email", value=f"{trx.email}")
 
-        # need to calculate money based on total bandwidth used for each IP
-        earned_dict[dev.title] = bw_usage[dev.title] // ((Decimal(0.01) / current_devs[0].rate) * GIGABYTES)
+        footer_text = f"Payment {trx.status} as on {trx.date.strftime('%Y-%m-%d')} via {trx.payment_method}"
 
-    ret_l = [f'{k: <15}: {v / MEGABYTES: >8.2f}MB|{earned_dict[k] / 100:>5.2f}$' for (k, v) in bw_usage.items()]
-
-    return '\n'.join(ret_l)
-
-
-def notify_new_trx(trx_l: List[Transaction], title: str = 'New Redeem Request'):
-    webhook = DiscordWebhook(url=WEBHOOK_URL, rate_limit_retry=True)
-    assert len(trx_l) > 0
-    trx = trx_l[0]
-    embed = DiscordEmbed(
-        title=title,
-        description="New redeem request has been submitted" if title == 'New Redeem Request' else 'Redeem request status updated',
-        color="07FF70"
-    )
-    embed.set_thumbnail(url=EARNAPP_LOGO)
-    for transaction in trx_l:
-        embed.add_embed_field(name="UUID", value=f"{transaction.uuid}")
-        embed.add_embed_field(name="Amount", value=f"+{transaction.money_amount}$")
-        embed.add_embed_field(name="Status", value=f"{transaction.status}")
-        embed.add_embed_field(name="Redeem Date", value=f"{transaction.date.strftime('%Y-%m-%d')}")
-
-    embed.add_embed_field(name="Method", value=f"{trx.payment_method}")
-    embed.add_embed_field(name="Email", value=f"{trx.email}")
-
-    footer_text = f"Payment {trx.status} as on {trx.date.strftime('%Y-%m-%d')} via {trx.payment_method}"
-
-    embed.set_footer(text=footer_text, icon_url=PAYPAL_ICON)
-    webhook.add_embed(embed)
-    webhook.execute()
+        embed.set_footer(text=footer_text, icon_url=PAYPAL_ICON)
+        webhook.add_embed(embed)
+        webhook.execute()
 
 
 def lambda_handler(event, context):
+    """Lambda function for notifying EarnApp's changes in balance and bandwidth usage via Discord.
+
+        Parameters
+        ----------
+        event: dict, optional
+            API Gateway Lambda Proxy Input Format
+
+            Event doc: https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html#api-gateway-simple-proxy-for-lambda-input-format
+
+        context: object, optional
+            Lambda Context runtime methods and attributes
+
+            Context doc: https://docs.aws.amazon.com/lambda/latest/dg/python-context-object.html
+
+        Returns
+        ------
+        Discord's response: text
+
+            Return doc
+        """
     webhook = DiscordWebhook(url=WEBHOOK_URL)
 
     try:
@@ -353,12 +375,12 @@ def lambda_handler(event, context):
                 changed_l.append(trx_map[uuid])
 
         if len(approved_trx_l) > 0:
-            notify_new_trx(approved_trx_l)
+            DiscordUtility.notify_new_trx(approved_trx_l)
             # insert new approved transactions to DynamoDB
             Transaction.insert_trx_to_dynamodb(approved_trx_l, trx_table)
             change = earnapp_money.balance  # there is a redeem request, so reset the change value to balance
         elif len(changed_l) > 0:  # approved redeem request is processed now
-            notify_new_trx(changed_l, title='Redeem Requests Status Changed!')
+            DiscordUtility.notify_new_trx(changed_l, title='Redeem Requests Status Changed!')
             change = earnapp_money.balance - db_money.balance
             Transaction.update_transactions(changed_l, trx_table)  # update trx status
         else:
@@ -389,7 +411,7 @@ def lambda_handler(event, context):
         embed.add_embed_field(name="Lifetime Balance",
                               value=f"{earnapp_money.earnings_total}")
         embed.add_embed_field(name='Traffic and Earnings',
-                              value=get_traffic_and_earnings(dev_l, current_devs))
+                              value=Device.get_traffic_and_earnings(dev_l, current_devs))
         embed.add_embed_field(name="Total Devices",
                               value=f"{len(dev_l)}")
 

@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Transform: AWS::Serverless-2016-10-31
+Transform: 'AWS::Serverless-2016-10-31'
 Description:  Service Infra Build Pipeline
 
 Globals:
@@ -19,15 +19,6 @@ Parameters:
     Default: "True"
 
 Resources:
-  EBRule:
-    Type: EventBridgeRule
-    Properties:
-      Pattern:
-        detail:
-          state:
-            - terminated
-      Target:
-        Id: !GetAtt LambdaTestFunction.Arn
 
   LambdaTestFunction:
     Type: AWS::Serverless::Function
@@ -39,15 +30,14 @@ Resources:
         - x86_64
       Environment:
         Variables:
-          TABLE_ARN: !GetAtt DynamoDBTestTable.Arn
           TOKEN: !Ref Token
           WEBHOOK_URL: !Ref WebhookUrl
           local: "True"
       MemorySize: 128
       Role: !GetAtt LambdaRole.Arn
 
-  Rule:
-    Type: 'AWS::Events::Rule'
+  EventBridgeRule:
+    Type: AWS::Events::Rule
     Properties:
       Description: sample-rule
       Name: everyday
@@ -57,33 +47,58 @@ Resources:
         - Arn: !GetAtt LambdaTestFunction.Arn
           Id: lambda
 
-  DynamoDBTestTable:
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaTestFunction
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn:
+        Fn::GetAtt:
+          - "EventBridgeRule"
+          - "Arn"
+
+  MoneyTestTable:
     Type: AWS::DynamoDB::Table
     Properties:
       AttributeDefinitions:
-      - AttributeName: name
-        AttributeType: S
-      - AttributeName: key
-        AttributeType: S
-      - AttributeName: date
-        AttributeType: S
-      BillingMode: PAY_PER_REQUEST
-      GlobalSecondaryIndexes:
-        - IndexName: KeyDate
-          KeySchema:
-          - AttributeName: key
-            KeyType: HASH
-          - AttributeName: date
-            KeyType: RANGE
-          Projection:
-            ProjectionType: ALL
+        - AttributeName: email
+          AttributeType: S
+      ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
       KeySchema:
-      - AttributeName: name
-        KeyType: HASH
-      TimeToLiveSpecification:
-        AttributeName: expireAt
-        Enabled: true
+        - AttributeName: email
+          KeyType: HASH
+  DevicesTestTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      KeySchema:
+        - AttributeName: uuid
+          KeyType: HASH
+        - AttributeName: title
+          KeyType: RANGE
+      AttributeDefinitions:
+        - AttributeName: uuid
+          AttributeType: S
+        - AttributeName: title
+          AttributeType: S
+      ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
 
+  TransactionsTestTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      KeySchema:
+        - AttributeName: uuid
+          KeyType: HASH
+      AttributeDefinitions:
+        - AttributeName: uuid
+          AttributeType: S
+      ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
   LambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -97,7 +112,7 @@ Resources:
             Action: "sts:AssumeRole"
 
       Policies:
-        - PolicyName: !Sub ${LambdaFunctionName}-DynamoDB
+        - PolicyName: SAMLambdaTest-DynamoDB
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -107,8 +122,11 @@ Resources:
                   - "dynamodb:Query"
                   - "dynamodb:PutItem"
                   - "dynamodb:UpdateItem"
-                Resource: !GetAtt DynamoDBTestTable.Arn
-        - PolicyName: !Sub ${LambdaFunctionName}-CloudWatch
+                Resource:
+                  - !GetAtt MoneyTestTable.Arn
+                  - !GetAtt DevicesTestTable.Arn
+                  - !GetAtt TransactionsTestTable.Arn
+        - PolicyName: SAMLambdaTest-CloudWatch
           PolicyDocument:
             Version: "2012-10-17"
             Statement:

@@ -6,11 +6,17 @@
 ```bash
 python3 -m pip install --user pipenv
 pipenv install --dev
-cp sample.env .env
+cp sample.env env.json
 ```
 
-Modify EarnApp Dashboard authentication token and Discord's webhook url in `.env` file
+Modify EarnApp Dashboard authentication token and Discord's webhook url in `env.json` file
 and save.
+
+Run Lambda function in local using SAM CLI:
+
+```bash
+sam local invoke --env-vars env.json
+```
 
 ## Create zip file for AWS Lambda deployment and deploy
 
@@ -37,3 +43,15 @@ Check table list in local DynamoDB
 ```bash
 aws dynamodb list-tables --endpoint-url http://localhost:8000
 ```
+
+## AWS Deployment
+
+```bash
+sam deploy --template-file ./template.yml --parameter-overrides  $(jq -r '.Parameters | to_entries[] | "\(.key)=\(.value) "' env.json) --resolve-s3
+```
+
+## References
+- https://blog.serverworks.co.jp/2020/12/17/001653
+- https://qiita.com/ytaka95/items/5899c44c85e71fdc5273
+- https://github.com/amazon-archives/serverless-app-examples/blob/master/python/dynamodb-process-stream-python3/template.yaml
+- https://dev.classmethod.jp/articles/check-when-creating-cloudwatchevents-and-lambda-with-cloudformation/
