@@ -4,8 +4,10 @@
 ## Create dev environment
 
 ```bash
+pyenv install 3.9.0
+pyenv local 3.9.0
 python3 -m pip install --user pipenv
-pipenv install --dev
+pipenv sync --dev
 cp sample.env env.json
 ```
 
@@ -15,7 +17,7 @@ and save.
 Run Lambda function in local using SAM CLI:
 
 ```bash
-sam local invoke --env-vars env.json
+sam local invoke -n env.json
 ```
 
 ## Create zip file for AWS Lambda deployment and deploy
@@ -47,6 +49,9 @@ aws dynamodb list-tables --endpoint-url http://localhost:8000
 ## AWS Deployment
 
 ```bash
+pipenv lock -r > src/requirements.txt
+sam build  # build artifacts
+
 sam deploy --template-file ./template.yml --parameter-overrides  $(jq -r '.Parameters | to_entries[] | "\(.key)=\(.value) "' env.json) --resolve-s3
 ```
 

@@ -108,17 +108,23 @@ class Transaction(BaseModel):
             table = dynamodb.Table('Transactions')
 
         for trx in trx_l:
+            update_str = 'set #fn = :s'
+            update_values = {
+                ':s': trx.status
+            }
+            if trx.payment_date is not None:
+                update_str = update_str + ', payment_date = :pd'
+                update_values[':pd'] = str(trx.payment_date)
+
             table.update_item(
                 Key={
                     'uuid': trx.uuid
                 },
-                UpdateExpression='set #fn = :s',
+                UpdateExpression=update_str,
                 ExpressionAttributeNames={
                     '#fn': 'status'
                 },
-                ExpressionAttributeValues={
-                    ':s': trx.status
-                },
+                ExpressionAttributeValues=update_values,
                 ReturnValues="UPDATED_NEW"
             )
 
@@ -187,11 +193,12 @@ class Money(BaseModel):
         if table is None:
             table = dynamodb.Table('Money')
 
+        update_str = "set balance=:b, multiplier=:m, multiplier_icon=:mi, multiplier_hint=:mh, earnings_total= :ea"
         table.update_item(
             Key={
                 'email': self.redeem_details['email']
             },
-            UpdateExpression="set balance=:b, multiplier=:m, multiplier_icon=:mi, multiplier_hint=:mh, earnings_total= :ea",
+            UpdateExpression=update_str,
             ExpressionAttributeValues={
                 ':b': self.balance,
                 ':m': self.multiplier,
