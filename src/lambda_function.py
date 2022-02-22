@@ -44,6 +44,9 @@ redeem_endpoint = urljoin(BASE_URL, 'redeem')
 if LOCAL:
     from dotenv import load_dotenv
 
+    # for running inside container using SAM CLI (host.docker.internal only work for Mac Docker)
+    # dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://host.docker.internal:8000")
+    # for running directly lambda_function.py
     dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
     load_dotenv()  # load .env file and export content as environment variables: WEBHOOK_URL, TOKEN
 else:
@@ -378,7 +381,7 @@ def lambda_handler(event, context):
         # find status changed trx
         changed_l = []
         for uuid in non_paid_trx_map.keys():
-            if trx_map[uuid].status != non_paid_trx_map[uuid]:  # transaction status changed!
+            if trx_map[uuid].status != non_paid_trx_map[uuid].status:  # transaction status changed!
                 changed_l.append(trx_map[uuid])
 
         if len(approved_trx_l) > 0:

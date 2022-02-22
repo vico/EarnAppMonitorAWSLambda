@@ -6,3 +6,4 @@ __pycache__
 .aws-sam
 env.json
 src/requirements.txt
+dev_env.json

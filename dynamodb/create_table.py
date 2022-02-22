@@ -11,7 +11,7 @@ load_dotenv()  # load .env file and export content as environment variables: WEB
 WEBHOOK_URL = os.environ['WEBHOOK_URL']
 TOKEN = os.environ['TOKEN']
 
-from src.lambda_function import Transaction, insert_trx_to_dynamodb, Money, Device
+from src.lambda_function import Transaction, Money, Device
 
 LOCAL = os.environ.get('local', '')
 if LOCAL.lower() == 'false':
@@ -152,7 +152,7 @@ def populate_trx():
                     money_amount=Decimal('6.08'), ref_bonuses_amount=Decimal('0'), promo_bonuses_amount=Decimal('0'))
     ]
     trx_table = dynamodb.Table('Transactions')
-    insert_trx_to_dynamodb(trx_l, trx_table)
+    Transaction.insert_trx_to_dynamodb(trx_l, trx_table)
 
 
 def populate_money_table():
