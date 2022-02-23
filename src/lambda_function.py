@@ -45,10 +45,10 @@ if LOCAL:
     from dotenv import load_dotenv
 
     # for running inside container using SAM CLI (host.docker.internal only work for Mac Docker)
-    # dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://host.docker.internal:8000")
+    dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://172.17.0.1:8000")
     # for running directly lambda_function.py
-    dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
-    load_dotenv()  # load .env file and export content as environment variables: WEBHOOK_URL, TOKEN
+    # dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
+    # load_dotenv()  # load .env file and export content as environment variables: WEBHOOK_URL, TOKEN
 else:
     dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1')
 

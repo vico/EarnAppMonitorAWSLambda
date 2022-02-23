@@ -54,12 +54,22 @@ Check table list in local DynamoDB
 aws dynamodb list-tables --endpoint-url http://localhost:8000
 ```
 
-Run lambda function in local environment without SAM:
+Run Lambda function in local environment without SAM:
 
 ```bash
 pipenv shell
 python lambda_function.py
 ```
+
+Run Lambda function local with SAM
+
+ Remember to set endpoint of local DynamoDB to `http://172.17.0.1:8000` where the IP can be checked
+by running `ip addr show docker0`
+
+```bash
+sam build Function --template .aws-sam/temp-template.yaml --build-dir .aws-sam/build --docker-network bridge && sam local invoke --template .aws-sam/build/template.yaml --docker-network bridge --docker-network bridge 
+```
+
 
 ## AWS Deployment
 
