@@ -15,12 +15,6 @@ Modify EarnApp Dashboard authentication token and Discord's webhook url in `env.
 and save.
 
 
-Run Lambda function in local using SAM CLI:
-(TODO: looks like it's hard to connect from container to host's local:8000 (local DynamoDB). Need to deal with this.)
-```bash
-#sam build && sam local invoke --template .aws-sam/build/template.yaml -n dev_env.json  --docker-network host --debug
-```
-
 ## Create zip file for AWS Lambda deployment and deploy
 
 Recreate venv to reduce the size of deployment file.
