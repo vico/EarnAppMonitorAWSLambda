@@ -61,7 +61,7 @@ Run Lambda function local with SAM
 by running `ip addr show docker0`
 
 ```bash
-sam build Function --template .aws-sam/temp-template.yaml --build-dir .aws-sam/build --docker-network bridge && sam local invoke --template .aws-sam/build/template.yaml --docker-network bridge --docker-network bridge 
+sam build Function --template .aws-sam/temp-template.yml --build-dir .aws-sam/build --docker-network bridge && sam local invoke --template .aws-sam/build/template.yml --docker-network bridge --docker-network bridge 
 ```
 
 
@@ -73,6 +73,21 @@ sam build  # build artifacts
 
 sam deploy --template-file ./template.yml --parameter-overrides  $(jq -r '.Parameters | to_entries[] | "\(.key)=\(.value) "' env.json) --resolve-s3
 ```
+
+## Publish application to AWS Serverless Application Repository
+
+Package the application
+
+```bash
+sam package --template-file template.yml --output-template-file packaged.yml --s3-bucket earnappdiscord
+```
+
+and then publish it.
+
+```bash
+sam publish --template packaged.yml --region ap-northeast-1
+```
+
 
 ## References
 - https://blog.serverworks.co.jp/2020/12/17/001653

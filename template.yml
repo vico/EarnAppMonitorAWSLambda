@@ -2,6 +2,19 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: 'AWS::Serverless-2016-10-31'
 Description:  Service Infra Build Pipeline
 
+Metadata:
+  AWS::ServerlessRepo::Application:
+    Name: EarnAppDashboardMonitoring
+    Description: AWS Lambda function for sending EarnApp Dashboard Earnings information to Discord server
+    Author: Tran Vinh Cuong
+    SpdxLicenseId: Apache-2.0
+    ReadmeUrl: README.md
+    Labels: ['earnapp', 'discord']
+    HomePageUrl: https://github.com/vico/EarnAppMonitorAWSLambda
+    SemanticVersion: 0.0.1
+    SourceCodeUrl: https://github.com/vico/EarnAppMonitorAWSLambda
+
+
 Globals:
   Function:
     Timeout: 3

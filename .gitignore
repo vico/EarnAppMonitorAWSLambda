@@ -1,9 +1,10 @@
 .idea
 __pycache__
 **/*.zip
-/check_earnapp_response.ipynb
+check_earnapp_response.ipynb
 .env
 .aws-sam
 env.json
 src/requirements.txt
 dev_env.json
+packaged.yaml

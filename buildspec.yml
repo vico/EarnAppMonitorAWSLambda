@@ -1,0 +1,11 @@
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+        python: 3.9
+  build:
+    commands:
+      - sam package --template-file template.yml --s3-bucket earnappdiscord --output-template-file packaged.yml
+artifacts:
+  files:
+    - packaged.yml
