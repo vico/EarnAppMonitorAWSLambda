@@ -220,11 +220,21 @@ class Device(BaseModel):
     bw: int
     total_bw: int
     redeem_bw: int
-    rate: condecimal(ge=0)
+    rate: condecimal(ge=0) # 20220226 2:00 JST changed to str
     earned: condecimal(ge=0)
     earned_total: condecimal(ge=0)
     country: str
     ips: List[IPv4Address]
+
+    def __init__(self, **data):
+        l = data['rate'].split('/')  # split $0.25/GB to 2 parts
+        data['rate'] = Decimal(l[0][1:])
+        super().__init__(**data)
+
+    # @property
+    # def rate_d(self) -> Decimal:
+    #     l = self.rate.split('/')  # split $0.25/GB to 2 parts
+    #     return Decimal(l[0][1:])
 
     def bw2cents(self) -> Decimal:
         """
