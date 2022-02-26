@@ -61,7 +61,7 @@ Run Lambda function local with SAM
 by running `ip addr show docker0`
 
 ```bash
-sam build Function --template .aws-sam/temp-template.yml --build-dir .aws-sam/build --docker-network bridge && sam local invoke --template .aws-sam/build/template.yml --docker-network bridge --docker-network bridge 
+sam build Function --template .aws-sam/temp-template.yaml --build-dir .aws-sam/build --docker-network bridge && sam local invoke --template .aws-sam/build/template.yaml --docker-network bridge --docker-network bridge 
 ```
 
 

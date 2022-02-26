@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+set -e  # instructs bash to immediately exit if any command has a non-zero exit status.
+set -o pipefail  # prevents errors in a pipeline from being masked
+set -u  # a reference to any variable you haven't previously defined - with the exceptions of $* and $@ - is an error
+
+pipenv --rm && pipenv install  # remove venv and install non-dev requirements
 
 ZIP_FILE=earning-notification-package.zip
 PY_VER=3.9

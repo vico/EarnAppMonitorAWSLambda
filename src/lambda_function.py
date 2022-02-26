@@ -220,33 +220,33 @@ class Device(BaseModel):
     bw: int
     total_bw: int
     redeem_bw: int
-    rate: condecimal(ge=0) # 20220226 2:00 JST changed to str
+    rate: str  # condecimal(ge=0) # 20220226 2:00 JST changed to str
     earned: condecimal(ge=0)
     earned_total: condecimal(ge=0)
     country: str
     ips: List[IPv4Address]
 
-    def __init__(self, **data):
-        l = data['rate'].split('/')  # split $0.25/GB to 2 parts
-        data['rate'] = Decimal(l[0][1:])
-        super().__init__(**data)
+    # def __init__(self, **data):  # not work when import data from current DB
+    #     l = data['rate'].split('/')  # split $0.25/GB to 2 parts
+    #     data['rate'] = Decimal(l[0][1:])
+    #     super().__init__(**data)
 
-    # @property
-    # def rate_d(self) -> Decimal:
-    #     l = self.rate.split('/')  # split $0.25/GB to 2 parts
-    #     return Decimal(l[0][1:])
+    @property
+    def rate_d(self) -> Decimal:
+        l = self.rate.split('/')  # split $0.25/GB to 2 parts
+        return Decimal(l[0][1:])
 
     def bw2cents(self) -> Decimal:
         """
         Given a device object, return number of cents earned by bandwidth use.
         :return: number of cents (USD)
         """
-        return self.bw // ((Decimal(0.01) / self.rate) * GIGABYTES)
+        return self.bw // ((Decimal(0.01) / self.rate_d) * GIGABYTES)
 
     def calculate_pending_bytes(self) -> Decimal:
         # number of G for 0.01USD = 0.01/0.25 = 0.04 GB (/0.01USD)
         number_of_cents = self.bw2cents()
-        pending_bytes = self.bw - number_of_cents * Decimal((Decimal(0.01) / self.rate) * GIGABYTES)
+        pending_bytes = self.bw - number_of_cents * Decimal((Decimal(0.01) / self.rate_d) * GIGABYTES)
         return pending_bytes
 
     def calculate_bandwidth_used(self) -> Decimal:
@@ -255,7 +255,7 @@ class Device(BaseModel):
         :return: a number express the bandwidth converted to money
         """
         number_of_cents = self.bw2cents()
-        return number_of_cents * Decimal((Decimal(0.01) / self.rate) * GIGABYTES)
+        return number_of_cents * Decimal((Decimal(0.01) / self.rate_d) * GIGABYTES)
 
     @staticmethod
     @retry(wait=wait_fixed(30), stop=stop_after_attempt(5))
@@ -311,7 +311,7 @@ class Device(BaseModel):
             bw_usage[dev.title] += bw_used
 
             # need to calculate money based on total bandwidth used for each IP
-            earned_dict[dev.title] = bw_usage[dev.title] // ((Decimal(0.01) / current_devs[0].rate) * GIGABYTES)
+            earned_dict[dev.title] = bw_usage[dev.title] // ((Decimal(0.01) / current_devs[0].rate_d) * GIGABYTES)
 
         ret_l = [f'{k: <15}: {v / MEGABYTES: >8.2f}MB|{earned_dict[k] / 100:>5.2f}$' for (k, v) in bw_usage.items()]
 
