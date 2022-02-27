@@ -196,16 +196,16 @@ def populate_device_table():
     table = dynamodb.Table('Devices')
     dev_l = [
         Device(uuid='sdk-node-31eb47c5d15849e5917a8028eee266cb', appid='node_earnapp.com', title='middle', bw=264677198,
-               total_bw=2872097612, redeem_bw=2607420414, rate=Decimal('0.25'), earned=Decimal('0.06'),
+               total_bw=2872097612, redeem_bw=2607420414, rate='$0.25/GB', earned=Decimal('0.06'),
                earned_total=Decimal('0.69'), country='jp', ips=[IPv4Address('222.224.148.183')]),
         Device(uuid='sdk-node-81869dce55b94d6e9d039ca3bc692cd9', appid='node_earnapp.com', title='bottom', bw=279744982,
-               total_bw=3033488514, redeem_bw=2753743532, rate=Decimal('0.25'), earned=Decimal('0.06'),
+               total_bw=3033488514, redeem_bw=2753743532, rate='$0.25/GB', earned=Decimal('0.06'),
                earned_total=Decimal('0.73'), country='jp', ips=[IPv4Address('222.224.148.183')]),
         Device(uuid='sdk-node-ca17fd0e8c2d4cd19d6fa6b4f0a324b4', appid='node_earnapp.com', title='top', bw=814733496,
-               total_bw=5666501096, redeem_bw=4851767600, rate=Decimal('0.25'), earned=Decimal('0.19'),
+               total_bw=5666501096, redeem_bw=4851767600, rate='$0.25/GB', earned=Decimal('0.19'),
                earned_total=Decimal('1.4'), country='jp', ips=[IPv4Address('111.217.8.34')]),
         Device(uuid='sdk-node-5171d466bdf643d2b87f374fb3e08f41', appid='node_earnapp.com', title='desktop',
-               bw=599303480, total_bw=19924712920, redeem_bw=19325409440, rate=Decimal('0.25'), earned=Decimal('0.14'),
+               bw=599303480, total_bw=19924712920, redeem_bw=19325409440, rate='$0.25/GB', earned=Decimal('0.14'),
                earned_total=Decimal('7.32'), country='jp', ips=[IPv4Address('111.217.8.34')])
     ]
     with table.batch_writer() as batch:

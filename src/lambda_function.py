@@ -42,7 +42,7 @@ transaction_endpoint = urljoin(BASE_URL, 'transactions')
 redeem_endpoint = urljoin(BASE_URL, 'redeem')
 
 if LOCAL:
-    from dotenv import load_dotenv
+    # from dotenv import load_dotenv
 
     # for running inside container using SAM CLI (host.docker.internal only work for Mac Docker)
     dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://172.17.0.1:8000")
@@ -220,33 +220,36 @@ class Device(BaseModel):
     bw: int
     total_bw: int
     redeem_bw: int
-    rate: str  # condecimal(ge=0) # 20220226 2:00 JST changed to str
+    rate: condecimal(ge=0)
     earned: condecimal(ge=0)
     earned_total: condecimal(ge=0)
     country: str
     ips: List[IPv4Address]
 
-    # def __init__(self, **data):  # not work when import data from current DB
-    #     l = data['rate'].split('/')  # split $0.25/GB to 2 parts
-    #     data['rate'] = Decimal(l[0][1:])
-    #     super().__init__(**data)
+    def __init__(self, **data):  # not work when import old data from DB -> updated data in DB
+        if isinstance(data['rate'], str):  # if the rate is a string (expect pattern of $0.25/GB)
+            l = data['rate'].split('/')  # split $0.25/GB to 2 parts (20220226 2:00 JST changed to str of format $0.25/GB)
+            data['rate'] = Decimal(l[0][1:])
+        super().__init__(**data)
 
-    @property
-    def rate_d(self) -> Decimal:
-        l = self.rate.split('/')  # split $0.25/GB to 2 parts
-        return Decimal(l[0][1:])
+    # @property
+    # def rate_d(self) -> Decimal:
+    #     if isinstance(self.rate, Decimal):
+    #         return self.rate
+    #     l = self.rate.split('/')  # split $0.25/GB to 2 parts
+    #     return Decimal(l[0][1:])
 
     def bw2cents(self) -> Decimal:
         """
         Given a device object, return number of cents earned by bandwidth use.
         :return: number of cents (USD)
         """
-        return self.bw // ((Decimal(0.01) / self.rate_d) * GIGABYTES)
+        return self.bw // ((Decimal(0.01) / self.rate) * GIGABYTES)
 
     def calculate_pending_bytes(self) -> Decimal:
         # number of G for 0.01USD = 0.01/0.25 = 0.04 GB (/0.01USD)
         number_of_cents = self.bw2cents()
-        pending_bytes = self.bw - number_of_cents * Decimal((Decimal(0.01) / self.rate_d) * GIGABYTES)
+        pending_bytes = self.bw - number_of_cents * Decimal((Decimal(0.01) / self.rate) * GIGABYTES)
         return pending_bytes
 
     def calculate_bandwidth_used(self) -> Decimal:
@@ -255,7 +258,7 @@ class Device(BaseModel):
         :return: a number express the bandwidth converted to money
         """
         number_of_cents = self.bw2cents()
-        return number_of_cents * Decimal((Decimal(0.01) / self.rate_d) * GIGABYTES)
+        return number_of_cents * Decimal((Decimal(0.01) / self.rate) * GIGABYTES)
 
     @staticmethod
     @retry(wait=wait_fixed(30), stop=stop_after_attempt(5))
@@ -311,7 +314,7 @@ class Device(BaseModel):
             bw_usage[dev.title] += bw_used
 
             # need to calculate money based on total bandwidth used for each IP
-            earned_dict[dev.title] = bw_usage[dev.title] // ((Decimal(0.01) / current_devs[0].rate_d) * GIGABYTES)
+            earned_dict[dev.title] = bw_usage[dev.title] // ((Decimal(0.01) / current_devs[0].rate) * GIGABYTES)
 
         ret_l = [f'{k: <15}: {v / MEGABYTES: >8.2f}MB|{earned_dict[k] / 100:>5.2f}$' for (k, v) in bw_usage.items()]
 
@@ -407,7 +410,7 @@ def lambda_handler(event, context):
             change = earnapp_money.balance - db_money.balance
 
         if change > 0:
-            title = f"Balance Increased [+{change}]"
+            title = f"Balance Increased [+{change:.2f}]"
             color = "03F8C4"
             earnapp_money.write_to_db(money_table)
             Device.update_devices(dev_l, dev_table)
@@ -415,7 +418,7 @@ def lambda_handler(event, context):
             title = "Balance Unchanged!"
             color = "E67E22"
         else:  # bug from earnapp which may withdraw money
-            title = f'Balance Decreased! [{change}]'
+            title = f'Balance Decreased! [{change:.2f}]'
             color = "FF0000"
             earnapp_money.write_to_db(money_table)
             Device.update_devices(dev_l, dev_table)
@@ -426,10 +429,10 @@ def lambda_handler(event, context):
         )
 
         embed.set_thumbnail(url=EARNAPP_LOGO)
-        embed.add_embed_field(name="Earned", value=f"+{change}$")
-        embed.add_embed_field(name="Balance", value=f"{earnapp_money.balance}")
+        embed.add_embed_field(name="Earned", value=f"+{change:.2f}$")
+        embed.add_embed_field(name="Balance", value=f"{earnapp_money.balance:.2f}")
         embed.add_embed_field(name="Lifetime Balance",
-                              value=f"{earnapp_money.earnings_total}")
+                              value=f"{earnapp_money.earnings_total:.2f}")
         embed.add_embed_field(name='Traffic and Earnings',
                               value=Device.get_traffic_and_earnings(dev_l, current_devs))
         embed.add_embed_field(name="Total Devices",
