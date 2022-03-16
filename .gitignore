@@ -8,3 +8,5 @@ env.json
 src/requirements.txt
 dev_env.json
 packaged.yaml
+prod.json
+/packaged.yml

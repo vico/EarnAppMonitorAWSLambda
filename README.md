@@ -1,6 +1,46 @@
 
 # Development memo
 
+## AWS account preparation
+
+```bash
+aws cloudformation create-stack \
+    --profile mfa_admin \
+    --stack-name iam-settings1 \
+    --template-body file://iam_settings.yml \
+    --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+    --parameters file://./prod.json
+```
+
+or you can run CloudFormation by upload the file `iam_settings.yml` to AWS Console interface.
+
+Download access_key and secret_access_key for `dev` IAM user created above.
+
+In file `~/.aws/credentials`, add developer `aws_access_key` and `aws_secret_access_key`,
+looks like the following:
+
+```yaml
+[dev]
+aws_access_key_id = XXXXXXXXKXXXXXXXXXXX
+aws_secret_access_key = qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
+```
+
+Then, in file `~/.aws/config`, add a profile with admin role so that the `dev` user can switch to.
+Let's call it `mfa_admin`.
+
+```yaml
+[default]
+region = ap-northeast-1
+output = text
+
+[profile mfa_admin]
+region = ap-northeast-1
+output = text
+source_profile = dev
+mfa_serial = arn:aws:iam::111111111111:mfa/dev
+role_arn = arn:aws:iam::111111111111:role/AdminRole
+```
+
 ## Create dev environment
 
 ```bash
@@ -71,21 +111,21 @@ sam build Function --template .aws-sam/temp-template.yaml --build-dir .aws-sam/b
 pipenv lock -r > src/requirements.txt
 sam build  # build artifacts
 
-sam deploy --template-file ./template.yml --parameter-overrides  $(jq -r '.Parameters | to_entries[] | "\(.key)=\(.value) "' env.json) --resolve-s3
+sam deploy --profile mfa_admin --template-file ./template.yml --parameter-overrides  $(jq -r '.Parameters | to_entries[] | "\(.key)=\(.value) "' env.json) --resolve-s3
 ```
 
 ## Publish application to AWS Serverless Application Repository
 
-Package the application
+Package the application (using admin role)
 
 ```bash
-sam package --template-file template.yml --output-template-file packaged.yml --s3-bucket earnappdiscord
+sam package --profile mfa_admin --template-file template.yml --output-template-file packaged.yml --s3-bucket earnappdiscord
 ```
 
 and then publish it.
 
 ```bash
-sam publish --template packaged.yml --region ap-northeast-1
+sam publish --profile mfa_admin --template packaged.yml --region ap-northeast-1
 ```
 
 

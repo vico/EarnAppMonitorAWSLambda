@@ -313,7 +313,7 @@ class Device(BaseModel):
             bw_used = dev_map[dev.uuid].bw - dev.calculate_bandwidth_used()
             bw_usage[dev.title] += bw_used
 
-            # need to calculate money based on total bandwidth used for each IP
+            # need to calculate money based on total bandwidth used for each device
             earned_dict[dev.title] = bw_usage[dev.title] // ((Decimal(0.01) / current_devs[0].rate) * GIGABYTES)
 
         ret_l = [f'{k: <15}: {v / MEGABYTES: >8.2f}MB|{earned_dict[k] / 100:>5.2f}$' for (k, v) in bw_usage.items()]
@@ -330,7 +330,7 @@ class DiscordUtility:
         trx = trx_l[0]
         embed = DiscordEmbed(
             title=title,
-            description="New redeem request has been submitted" if title == 'New Redeem Request' else 'Redeem request status updated',
+            description="New redeem request has been submitted" if title == 'New Redeem Request' else f'Redeem request status updated: {trx.status}',
             color="07FF70"
         )
         embed.set_thumbnail(url=EARNAPP_LOGO)
@@ -402,7 +402,12 @@ def lambda_handler(event, context):
             # insert new approved transactions to DynamoDB
             Transaction.insert_trx_to_dynamodb(approved_trx_l, trx_table)
             change = earnapp_money.balance  # there is a redeem request, so reset the change value to balance
-        elif len(changed_l) > 0:  # approved redeem request is processed now
+
+            # reset list of devices bw, since all bw are redeemed now.
+            for dev in dev_l:
+                dev.bw = 0
+
+        elif len(changed_l) > 0:  # there are trx which have status are updated
             DiscordUtility.notify_new_trx(changed_l, title='Redeem Requests Status Changed!')
             change = earnapp_money.balance - db_money.balance
             Transaction.update_transactions(changed_l, trx_table)  # update trx status
@@ -410,18 +415,18 @@ def lambda_handler(event, context):
             change = earnapp_money.balance - db_money.balance
 
         if change > 0:
-            title = f"Balance Increased [+{change:.2f}]"
+            title = f"Balance Increased [+{change:.2f} → {earnapp_money.balance}]"  # for displaying on notification msg
             color = "03F8C4"
-            earnapp_money.write_to_db(money_table)
             Device.update_devices(dev_l, dev_table)
         elif change == 0:
-            title = "Balance Unchanged!"
+            title = f"Balance Unchanged! [{earnapp_money.balance}]"
             color = "E67E22"
         else:  # bug from earnapp which may withdraw money
-            title = f'Balance Decreased! [{change:.2f}]'
+            title = f'Balance Decreased! [{change:.2f} → {earnapp_money.balance}]'
             color = "FF0000"
-            earnapp_money.write_to_db(money_table)
             Device.update_devices(dev_l, dev_table)
+
+        earnapp_money.write_to_db(money_table)  # always write balance info got from Dashboard to DB
 
         embed = DiscordEmbed(
             title=title,
