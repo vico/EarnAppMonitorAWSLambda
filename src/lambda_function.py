@@ -328,9 +328,15 @@ class DiscordUtility:
         webhook = DiscordWebhook(url=WEBHOOK_URL, rate_limit_retry=True)
         assert len(trx_l) > 0
         trx = trx_l[0]
+        if title == 'New Redeem Request':
+            description = 'New redeem request has been submitted'
+        else:
+            title = f'{title}: {trx.status}'
+            description = 'Redeem request status updated.'
+
         embed = DiscordEmbed(
             title=title,
-            description="New redeem request has been submitted" if title == 'New Redeem Request' else f'Redeem request status updated: {trx.status}',
+            description=description,
             color="07FF70"
         )
         embed.set_thumbnail(url=EARNAPP_LOGO)
@@ -404,7 +410,7 @@ def lambda_handler(event, context):
             change = earnapp_money.balance  # there is a redeem request, so reset the change value to balance
 
             # reset list of devices bw, since all bw are redeemed now.
-            for dev in dev_l:
+            for dev in current_devs:
                 dev.bw = 0
 
         elif len(changed_l) > 0:  # there are trx which have status are updated
@@ -415,17 +421,16 @@ def lambda_handler(event, context):
             change = earnapp_money.balance - db_money.balance
 
         if change > 0:
-            title = f"Balance Increased [+{change:.2f} → {earnapp_money.balance}]"  # for displaying on notification msg
+            title = f"Balance [+{change:.2f} → {earnapp_money.balance}] ({earnapp_money.multiplier:.2f})"  # for displaying on notification msg
             color = "03F8C4"
-            Device.update_devices(dev_l, dev_table)
         elif change == 0:
-            title = f"Balance Unchanged! [{earnapp_money.balance}]"
+            title = f"Balance Unchanged! [{earnapp_money.balance}] ({earnapp_money.multiplier:.2f})"
             color = "E67E22"
         else:  # bug from earnapp which may withdraw money
-            title = f'Balance Decreased! [{change:.2f} → {earnapp_money.balance}]'
+            title = f'Balance [{change:.2f} → {earnapp_money.balance}] ({earnapp_money.multiplier:.2f})'
             color = "FF0000"
-            Device.update_devices(dev_l, dev_table)
 
+        Device.update_devices(dev_l, dev_table)
         earnapp_money.write_to_db(money_table)  # always write balance info got from Dashboard to DB
 
         embed = DiscordEmbed(

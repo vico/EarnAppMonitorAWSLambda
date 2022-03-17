@@ -17,16 +17,16 @@ or you can run CloudFormation by upload the file `iam_settings.yml` to AWS Conso
 Download access_key and secret_access_key for `dev` IAM user created above.
 
 In file `~/.aws/credentials`, add developer `aws_access_key` and `aws_secret_access_key`,
-looks like the following:
+looks like the following (replace the XX and qqq with real access_key and real secret_access_key):
 
 ```yaml
 [dev]
-aws_access_key_id = XXXXXXXXKXXXXXXXXXXX
-aws_secret_access_key = qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
+aws_access_key_id = XX
+aws_secret_access_key = qqq
 ```
 
 Then, in file `~/.aws/config`, add a profile with admin role so that the `dev` user can switch to.
-Let's call it `mfa_admin`.
+Let's call it `mfa_admin`. (replace 111111111111 with real account number)
 
 ```yaml
 [default]
@@ -101,7 +101,9 @@ Run Lambda function local with SAM
 by running `ip addr show docker0`
 
 ```bash
-sam build Function --template .aws-sam/temp-template.yaml --build-dir .aws-sam/build --docker-network bridge && sam local invoke --template .aws-sam/build/template.yaml --docker-network bridge --docker-network bridge 
+sam build Function --template .aws-sam/temp-template.yaml --build-dir \
+ .aws-sam/build --docker-network bridge && sam local invoke --template .aws-sam/build/template.yaml \
+  --docker-network bridge --docker-network bridge 
 ```
 
 
@@ -111,7 +113,8 @@ sam build Function --template .aws-sam/temp-template.yaml --build-dir .aws-sam/b
 pipenv lock -r > src/requirements.txt
 sam build  # build artifacts
 
-sam deploy --profile mfa_admin --template-file ./template.yml --parameter-overrides  $(jq -r '.Parameters | to_entries[] | "\(.key)=\(.value) "' env.json) --resolve-s3
+sam deploy --profile mfa_admin --template-file ./template.yml \
+ --parameter-overrides  $(jq -r '.Parameters | to_entries[] | "\(.key)=\(.value) "' env.json) --resolve-s3
 ```
 
 ## Publish application to AWS Serverless Application Repository
