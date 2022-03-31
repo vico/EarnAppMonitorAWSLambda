@@ -19,7 +19,18 @@ VENV_DIR=$( pipenv --venv )/lib/python${PY_VER}/site-packages
 cd $VENV_DIR && zip -r $SCRIPT_DIR/$ZIP_FILE . > /dev/null
 cd $SCRIPT_DIR/src && zip -g $SCRIPT_DIR/$ZIP_FILE lambda_function.py > /dev/null
 cd $SCRIPT_DIR && ls -lh $ZIP_FILE
+
+# update function code
 aws lambda update-function-code --profile mfa_admin --function-name ${LAMBDA_FUNC_NAME} --zip-file fileb://${ZIP_FILE}
+# TODO: publish version
+# aws lambda publish-version --function-name ${LAMBDA_FUNC_NAME}
+# TODO: update rule target to new version
+# aws events put-targets --rule earnapp_check_rule --targets <value>
+
+
+# to set subnet-id for lambda function to be able to access to VPC
+# aws lambda update-function-configuration --function-name my-function --vpc-config SubnetIds=subnet-1122aabb,SecurityGroupIds=sg-51530134
+
 
 # finally install dev environment again
 pipenv install --dev
