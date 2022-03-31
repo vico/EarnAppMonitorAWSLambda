@@ -397,29 +397,8 @@ def lambda_handler(event, context):
         trx_map = {trx.uuid: trx for trx in all_trx}
         approved_trx_l = [trx for trx in all_trx if trx.status == TransactionStatus.approved]
 
-        # find status changed trx
-        changed_l = []
-        for uuid in non_paid_trx_map.keys():
-            if trx_map[uuid].status != non_paid_trx_map[uuid].status:  # transaction status changed!
-                changed_l.append(trx_map[uuid])
-
-        if len(approved_trx_l) > 0:
-            DiscordUtility.notify_new_trx(approved_trx_l)
-            # insert new approved transactions to DynamoDB
-            Transaction.insert_trx_to_dynamodb(approved_trx_l, trx_table)
-            change = earnapp_money.balance  # there is a redeem request, so reset the change value to balance
-
-            # reset list of devices bw, since all bw are redeemed now.
-            for dev in current_devs:
-                dev.bw = 0
-
-        elif len(changed_l) > 0:  # there are trx which have status are updated
-            DiscordUtility.notify_new_trx(changed_l, title='Redeem Requests Status Changed!')
-            change = earnapp_money.balance - db_money.balance
-            Transaction.update_transactions(changed_l, trx_table)  # update trx status
-        else:
-            change = earnapp_money.balance - db_money.balance
-
+        # notify about change in bandwidth usage
+        change = earnapp_money.balance - db_money.balance
         if change > 0:
             title = f"Balance [+{change:.2f} → {earnapp_money.balance}] ({earnapp_money.multiplier:.2f})"  # for displaying on notification msg
             color = "03F8C4"
@@ -429,9 +408,6 @@ def lambda_handler(event, context):
         else:  # bug from earnapp which may withdraw money
             title = f'Balance [{change:.2f} → {earnapp_money.balance}] ({earnapp_money.multiplier:.2f})'
             color = "FF0000"
-
-        Device.update_devices(dev_l, dev_table)
-        earnapp_money.write_to_db(money_table)  # always write balance info got from Dashboard to DB
 
         embed = DiscordEmbed(
             title=title,
@@ -452,6 +428,27 @@ def lambda_handler(event, context):
         embed.set_timestamp()
 
         webhook.add_embed(embed)
+
+        # notify about redeem or status change of deem request if any
+
+
+        # find status changed trx
+        changed_l = []
+        for uuid in non_paid_trx_map.keys():
+            if trx_map[uuid].status != non_paid_trx_map[uuid].status:  # transaction status changed!
+                changed_l.append(trx_map[uuid])
+        is_redeemed = len(approved_trx_l) > 0
+        if is_redeemed:
+            DiscordUtility.notify_new_trx(approved_trx_l)
+            # insert new approved transactions to DynamoDB
+            Transaction.insert_trx_to_dynamodb(approved_trx_l, trx_table)
+        elif len(changed_l) > 0:  # there are trx which have status are updated
+            DiscordUtility.notify_new_trx(changed_l, title='Redeem Requests Status Changed!')
+            Transaction.update_transactions(changed_l, trx_table)  # update trx status
+
+        Device.update_devices(dev_l, dev_table)
+        earnapp_money.write_to_db(money_table)  # always write balance info got from Dashboard to DB
+
     except RetryError:
         embed = DiscordEmbed(
             title="Earning Update Error 🤖",
