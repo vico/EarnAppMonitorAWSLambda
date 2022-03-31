@@ -228,7 +228,8 @@ class Device(BaseModel):
 
     def __init__(self, **data):  # not work when import old data from DB -> updated data in DB
         if isinstance(data['rate'], str):  # if the rate is a string (expect pattern of $0.25/GB)
-            l = data['rate'].split('/')  # split $0.25/GB to 2 parts (20220226 2:00 JST changed to str of format $0.25/GB)
+            l = data['rate'].split(
+                '/')  # split $0.25/GB to 2 parts (20220226 2:00 JST changed to str of format $0.25/GB)
             data['rate'] = Decimal(l[0][1:])
         super().__init__(**data)
 
@@ -395,7 +396,9 @@ def lambda_handler(event, context):
 
         all_trx = Transaction.get_trx_from_earnapp()
         trx_map = {trx.uuid: trx for trx in all_trx}
-        approved_trx_l = [trx for trx in all_trx if trx.status == TransactionStatus.approved]
+        approved_trx_l = [trx for trx in all_trx if trx.status == TransactionStatus.approved
+                          and trx.uuid not in non_paid_trx_map
+                          ]
 
         # notify about change in bandwidth usage
         change = earnapp_money.balance - db_money.balance
