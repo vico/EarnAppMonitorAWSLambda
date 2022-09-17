@@ -105,8 +105,7 @@ Run Lambda function local with SAM
 by running `ip addr show docker0`
 
 ```bash
-sam build  && sam local invoke --profile dev  \
-  --docker-network bridge --docker-network bridge --parameter-overrides \
+sam build  && sam local invoke --profile dev --docker-network bridge --parameter-overrides \
   $(jq -r '.Parameters | to_entries[] | "\(.key)=\(.value) "' dev_env.json)
 ```
 
