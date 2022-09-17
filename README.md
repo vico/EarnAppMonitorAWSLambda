@@ -48,11 +48,13 @@ pyenv install 3.9.0
 pyenv local 3.9.0
 python3 -m pip install --user pipenv
 pipenv sync --dev
-cp sample.env env.json
+cp sample_env.json env.json      # for production
+cp sample_env.json dev_env.json  # for development
 ```
 
-Modify EarnApp Dashboard authentication token and Discord's webhook url in `env.json` file
-and save.
+
+Modify EarnApp Dashboard authentication token and Discord's webhook url in `env.json` and `dev_env.json` file
+and save. Remember to get a new token from Earnapp site.
 
 
 ## Create zip file for AWS Lambda deployment and deploy
@@ -62,6 +64,7 @@ Recreate venv to reduce the size of deployment file.
 pipenv --rm   # rm venv
 pipenv install  # install the venv again
 ```
+
 
 Run bash script to create zip file and deploy to AWS Lambda:
 
@@ -85,13 +88,14 @@ python create_table.py
 Check table list in local DynamoDB
 
 ```bash
-aws dynamodb list-tables --endpoint-url http://localhost:8000
+aws --profile dev dynamodb list-tables --endpoint-url http://localhost:8000 --region ap-northeast-1
 ```
 
 Run Lambda function in local environment without SAM:
 
 ```bash
 pipenv shell
+# to run function in local environment, it may need to modify lambda_function.py to use dev profile.
 python lambda_function.py
 ```
 
@@ -101,9 +105,9 @@ Run Lambda function local with SAM
 by running `ip addr show docker0`
 
 ```bash
-sam build Function --template .aws-sam/temp-template.yaml --build-dir \
- .aws-sam/build --docker-network bridge && sam local invoke --template .aws-sam/build/template.yaml \
-  --docker-network bridge --docker-network bridge 
+sam build  && sam local invoke --profile dev  \
+  --docker-network bridge --docker-network bridge --parameter-overrides \
+  $(jq -r '.Parameters | to_entries[] | "\(.key)=\(.value) "' dev_env.json)
 ```
 
 

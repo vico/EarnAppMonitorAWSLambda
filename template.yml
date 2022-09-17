@@ -17,7 +17,7 @@ Metadata:
 
 Globals:
   Function:
-    Timeout: 3
+    Timeout: 10
 
 Parameters:
   Token:

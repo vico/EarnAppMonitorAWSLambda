@@ -44,6 +44,8 @@ redeem_endpoint = urljoin(BASE_URL, 'redeem')
 if LOCAL:
     # from dotenv import load_dotenv
 
+    # session = boto3.Session(profile_name='dev')  # when run directly with local python, need to specify profile
+
     # for running inside container using SAM CLI (host.docker.internal only work for Mac Docker)
     dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://172.17.0.1:8000")
     # for running directly lambda_function.py
@@ -451,7 +453,7 @@ def lambda_handler(event, context):
 
         Device.update_devices(dev_l, dev_table)
         earnapp_money.write_to_db(money_table)  # always write balance info got from Dashboard to DB
-
+        print('finished')
     except RetryError:
         embed = DiscordEmbed(
             title="Earning Update Error 🤖",

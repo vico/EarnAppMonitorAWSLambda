@@ -1,0 +1,7 @@
+{
+  "Parameters": {
+    "Token": "token",
+    "WebhookUrl": "discord_webhook_url",
+    "local": "False"
+  }
+}

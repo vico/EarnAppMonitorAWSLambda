@@ -11,7 +11,7 @@ load_dotenv()  # load .env file and export content as environment variables: WEB
 WEBHOOK_URL = os.environ['WEBHOOK_URL']
 TOKEN = os.environ['TOKEN']
 
-from src.lambda_function import Transaction, Money, Device
+from lambda_function import Transaction, Money, Device
 
 LOCAL = os.environ.get('local', '')
 if LOCAL.lower() == 'false':
@@ -19,10 +19,11 @@ if LOCAL.lower() == 'false':
 else:
     LOCAL = True
 
+session = boto3.Session(profile_name='dev')
 if LOCAL:
-    client = boto3.client('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
+    client = session.client('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
 else:
-    client = boto3.client('dynamodb', region_name='ap-northeast-1')
+    client = session.client('dynamodb', region_name='ap-northeast-1')
 
 
 def create_trx_table():
@@ -129,7 +130,7 @@ def create_money_table():
 
 
 def populate_trx():
-    dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
+    dynamodb = session.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
     trx_l = [
         Transaction(uuid='620de578a4395ee504b765ba', status='pending_procedure', email='tranvinhcuong@gmail.com',
                     date=datetime.datetime(2022, 2, 17, 6, 4, 40, 370000, tzinfo=datetime.timezone.utc),
@@ -156,7 +157,7 @@ def populate_trx():
 
 
 def populate_money_table():
-    dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
+    dynamodb = session.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
     table = dynamodb.Table('Money')
 
     money = Money(**{'ref_bonuses_total': Decimal('0'),
@@ -192,7 +193,7 @@ def populate_money_table():
 
 
 def populate_device_table():
-    dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
+    dynamodb = session.resource('dynamodb', region_name='ap-northeast-1', endpoint_url="http://localhost:8000")
     table = dynamodb.Table('Devices')
     dev_l = [
         Device(uuid='sdk-node-31eb47c5d15849e5917a8028eee266cb', appid='node_earnapp.com', title='middle', bw=264677198,
