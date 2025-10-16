@@ -6,8 +6,8 @@ set -u  # a reference to any variable you haven't previously defined - with the 
 pipenv --rm && pipenv install  # remove venv and install non-dev requirements
 
 ZIP_FILE=earning-notification-package.zip
-PY_VER=3.9
-LAMBDA_FUNC_NAME=test-function
+PY_VER=3.13
+LAMBDA_FUNC_NAME=earnapp-notification
 
 rm -rf $ZIP_FILE
 # SO: a double dash (--) is used in most Bash built-in commands and many other commands to signify
